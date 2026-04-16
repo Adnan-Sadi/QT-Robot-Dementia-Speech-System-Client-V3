@@ -39,6 +39,9 @@ class STTAccumulator:
         # ROS subscriber for audio
         self._audio_sub = None
 
+        # Vosk ROS service (only used when STT_ENGINE=vosk)
+        self._vosk_service = None
+
         # Emotion service for listening feedback
         try:
             rospy.wait_for_service('/qt_robot/emotion/show', timeout=5)
@@ -51,14 +54,24 @@ class STTAccumulator:
     # ------------------------------------------------------------------
 
     def setup_ros_audio(self):
-        """Subscribe to the robot's audio topic or open an external mic via PyAudio."""
-        if settings.MIC_SOURCE == "external":
-            self._setup_external_mic()
+        """Subscribe to the robot's audio topic or set up Vosk ROS service."""
+        if settings.STT_ENGINE == "vosk":
+            self._setup_vosk()
         else:
-            # Default: subscribe to the ReSpeaker ROS topic
-            self._audio_sub = rospy.Subscriber(
-                '/qt_respeaker_app/channel0', AudioData, self._on_audio
-            )
+            # Google Speech: need the audio stream
+            if settings.MIC_SOURCE == "external":
+                self._setup_external_mic()
+            else:
+                self._audio_sub = rospy.Subscriber(
+                    '/qt_respeaker_app/channel0', AudioData, self._on_audio
+                )
+
+    def _setup_vosk(self):
+        """Set up the QT robot's built-in Vosk speech recognition service."""
+        from qt_vosk_app.srv import speech_recognize
+        rospy.loginfo("STT engine: vosk. Using /qt_robot/speech/recognize service.")
+        rospy.wait_for_service('/qt_robot/speech/recognize', timeout=10)
+        self._vosk_service = rospy.ServiceProxy('/qt_robot/speech/recognize', speech_recognize)
 
     def _setup_external_mic(self):
         """Open a PyAudio stream for the external USB microphone."""
@@ -123,7 +136,13 @@ class STTAccumulator:
         self._clear_accumulated()
         self._aqueue.queue.clear()
 
-        self._listen_thread = threading.Thread(target=self._recognition_loop, daemon=True)
+        # Pick the right recognition loop based on STT engine
+        if settings.STT_ENGINE == "vosk":
+            target = self._vosk_recognition_loop
+        else:
+            target = self._recognition_loop
+
+        self._listen_thread = threading.Thread(target=target, daemon=True)
         self._listen_thread.start()
 
         self._bus.publish("status", "Listening...")
@@ -219,6 +238,49 @@ class STTAccumulator:
             except Exception as e:
                 if self._running:
                     rospy.logwarn(f"STT stream error (will retry): {e}")
+                    time.sleep(1.0)
+
+    def _vosk_recognition_loop(self):
+        """Vosk recognition loop — uses QT robot's built-in ROS service.
+        
+        Unlike Google Speech, Vosk doesn't provide interim results.
+        Each service call blocks until the user finishes speaking or timeout.
+        The final transcript is then accumulated just like with Google Speech.
+        """
+        from qt_vosk_app.srv import speech_recognizeRequest
+
+        while self._running:
+            if not self._listening:
+                time.sleep(0.1)
+                continue
+
+            try:
+                req = speech_recognizeRequest()
+                req.timeout = int(settings.DEFAULT_TIMEOUT)
+                req.language = self._language
+
+                resp = self._vosk_service(req)
+                transcript = getattr(resp, "transcript", "")
+
+                if transcript and self._listening and self._running:
+                    with self._lock:
+                        if self._accumulated_text:
+                            self._accumulated_text += " " + transcript
+                        else:
+                            self._accumulated_text = transcript
+
+                    with self._lock:
+                        full_text = self._accumulated_text
+                    # Publish as final (no interim available with Vosk)
+                    self._bus.publish("stt_final", full_text)
+
+            except rospy.ServiceException as e:
+                if self._running:
+                    rospy.logwarn(f"Vosk service error (will retry): {e}")
+                    time.sleep(1.0)
+            except Exception as e:
+                if self._running:
+                    rospy.logwarn(f"Vosk recognition error (will retry): {e}")
                     time.sleep(1.0)
 
     def _process_responses(self, responses):
