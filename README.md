@@ -128,6 +128,8 @@ Create a `.env` file in the repository root. You can copy the `.env.example` fil
 | `SOURCE` | Source label sent to the backend |
 | `USERNAME` | Backend login username |
 | `PASSWORD` | Backend login password |
+| `MIC_SOURCE` | Audio source for the microphone input, default (QT Robot's microphone) or external |
+| `MIC_DEVICE_INDEX` | Audio device index for the external microphone input, used by pyaudio (more instructions are given below for finding the device index) |
 | `STT_ENGINE` | Speech-to-text engine; currently expected to be `gspeech` |
 | `AUDIO_RATE` | Audio sample rate |
 | `DEFAULT_LANGUAGE` | Default speech recognition language |
