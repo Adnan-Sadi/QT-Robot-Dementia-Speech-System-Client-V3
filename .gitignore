@@ -43,6 +43,7 @@ env/
 venv/
 agt_venv/
 dss_venv/
+dss_venv_2/
 ENV/
 env.bak/
 venv.bak/

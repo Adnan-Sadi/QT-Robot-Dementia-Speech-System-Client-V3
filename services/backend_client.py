@@ -94,16 +94,16 @@ class BackendClient:
     async def _listen_loop(self):
         assert self._ws
         while True:
-            msg = await self._ws.receive()
-            if msg.type == aiohttp.WSMsgType.TEXT:
-                try:
-                    data = json.loads(msg.data)
-                except json.JSONDecodeError:
-                    continue
-            
-                mtype = data.get("type")
-                if mtype == "llm_response":
-                    async with self._lock:
+            try:
+                msg = await self._ws.receive()
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    try:
+                        data = json.loads(msg.data)
+                    except json.JSONDecodeError:
+                        continue
+                
+                    mtype = data.get("type")
+                    if mtype == "llm_response":
                         payload = data.get("data")
                         emotion = data.get("emotion")
                         
@@ -123,10 +123,15 @@ class BackendClient:
                         if self._on_llm_response:
                             self._on_llm_response(text, emotion, current_scenario, next_scenario)
 
-            elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSE):
-                await self._reconnect_with_backoff()
-            elif msg.type == aiohttp.WSMsgType.ERROR:
-                await self._reconnect_with_backoff()
+                elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSE):
+                    await self._reconnect_with_backoff()
+                elif msg.type == aiohttp.WSMsgType.ERROR:
+                    await self._reconnect_with_backoff()
+            except Exception as e:
+                import traceback
+                print(f"[BackendClient] _listen_loop error: {e}")
+                traceback.print_exc()
+                raise
 
     async def _reconnect_with_backoff(self):
         # simple exponential backoff up to 30s

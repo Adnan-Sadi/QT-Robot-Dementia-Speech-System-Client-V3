@@ -106,6 +106,7 @@ class ChatController:
                 self._backend.send_audio_chunk(audio_data[i:i + CHUNK], sample_rate=16000)
 
             # Tell the backend to now flush staged utterances and generate the LLM response
+            time.sleep(2.0) # adding a small delay for backend to flush, I need to improve this behavior
             self._backend.send_staged()
 
         except Exception as e:
@@ -119,6 +120,7 @@ class ChatController:
         Called from the asyncio loop thread when the backend sends an llm_response.
         Dispatches robot speech to a background thread.
         """
+        print(f"[ChatController] llm_response received: text='{text[:50]}', emotion={emotion}, scenario={current_scenario}")
         if not self._session_active:
             return
         threading.Thread(
