@@ -13,8 +13,8 @@ from config.settings import settings
 class ChatController:
     """
     Orchestrates the turn-taking flow:
-      - Robot starts listening (STT accumulates transcript)
-      - User clicks "Send" -> accumulated transcript sent to backend
+      - Robot starts listening (STT accumulates transcript and audio)
+      - User clicks "Send" -> accumulated audio sent to backend
       - Robot speaks the response (STT paused)
       - Robot finishes speaking -> back to step 1
     """
@@ -25,6 +25,9 @@ class ChatController:
         self._stt = stt
         self._backend = backend
         self._session_active = False
+
+        # backend llm_responses are handled here
+        self._backend.set_response_callback(self._on_llm_response_received)
 
     # ------------------------------------------------------------------
     # Session lifecycle
@@ -69,66 +72,79 @@ class ChatController:
     def send_message(self):
         """
         Called when user clicks Send.
-        Grabs accumulated STT transcript, sends to backend, robot speaks response.
+        Sends accumulated audio to backend, backend STT generates transcript and LLM response.
+        Local STT transcript is used only for UI display.
         """
         if not self._session_active:
             self._bus.publish("error", "No active session.")
             return
 
-        transcript = self._stt.get_and_clear_transcript()
-        if not transcript:
+        audio_data = self._stt.get_and_clear_audio_buffer()
+        if not audio_data:
             self._bus.publish("error", "Nothing to send. Please speak first.")
             return
 
         # Pause listening while we process
         self._stt.pause_listening()
-        self._bus.publish("stt_final", "")  # Clear the transcript display
 
-        # Publish user message to chat UI
-        self._bus.publish("user_message", transcript)
+        # Show local STT transcript in UI (display only, backend does the real STT)
+        local_transcript = self._stt.get_and_clear_transcript()
+        if local_transcript:
+            self._bus.publish("user_message", local_transcript)
+
+        self._bus.publish("stt_final", "")  # Clear transcript display
         self._bus.publish("status", "Thinking...")
 
-        # Run backend call + robot speech in background thread
-        threading.Thread(target=self._process_turn, args=(transcript,), daemon=True).start()
+        threading.Thread(target=self._dispatch_audio, args=(audio_data,), daemon=True).start()
 
-    def _process_turn(self, transcript):
-        """Background: send to backend, speak response, resume listening."""
+    def _dispatch_audio(self, audio_data: bytes):
+        """Background: send accumulated audio to backend, then trigger LLM response."""
         try:
-            llm_start = time.perf_counter()
+            # Send audio in chunks (backend STT accumulates them)
+            CHUNK = 4096
+            for i in range(0, len(audio_data), CHUNK):
+                self._backend.send_audio_chunk(audio_data[i:i + CHUNK], sample_rate=16000)
 
-            response_text, response_emotion, current_scenario, next_scenario = (
-                self._backend.send_transcript_and_wait(
-                    transcript,
-                    emotion=None,
-                    timeout=settings.LLM_TIMEOUT,
-                )
-            )
+            # Tell the backend to now flush staged utterances and generate the LLM response
+            self._backend.send_staged()
 
-            llm_time = time.perf_counter() - llm_start
+        except Exception as e:
+            self._bus.publish("error", f"Failed to send audio: {e}")
+            traceback.print_exc()
+            if self._session_active:
+                self._stt.resume_listening()
 
-            # Publish response to UI
+    def _on_llm_response_received(self, text, emotion, current_scenario, next_scenario):
+        """
+        Called from the asyncio loop thread when the backend sends an llm_response.
+        Dispatches robot speech to a background thread.
+        """
+        if not self._session_active:
+            return
+        threading.Thread(
+            target=self._process_response,
+            args=(text, emotion, current_scenario, next_scenario),
+            daemon=True
+        ).start()
+
+    def _process_response(self, response_text, response_emotion, current_scenario, next_scenario):
+        """Background: publish response to UI, speak it, then resume listening."""
+        try:
             self._bus.publish(
                 "llm_response",
                 response_text,
                 emotion=response_emotion,
                 current_scenario=current_scenario,
                 next_scenario=next_scenario,
-                response_time=llm_time,
             )
-
-            # For future use: calling the execute_actions function for any movement/emotion commands from the backend response
-            # self._robot.execute_actions(response.get("actions"))
-
-            # Robot speaks (blocking)
             self._bus.publish("status", "Speaking...")
             emotion = response_emotion.lower() if response_emotion else "neutral"
             self._robot.say(response_text, emotion)
 
         except Exception as e:
-            self._bus.publish("error", f"Backend error: {e}")
+            self._bus.publish("error", f"Response error: {e}")
             traceback.print_exc()
 
         finally:
-            # Resume listening for next turn
             if self._session_active:
                 self._stt.resume_listening()

@@ -21,7 +21,7 @@ def main():
     # 2. Create shared services
     bus = EventBus()
     backend = BackendBridge()
-    stt = STTAccumulator(bus)
+    stt = STTAccumulator(bus, backend=backend)
 
     # 3. Create controller (orchestrates everything)
     controller = ChatController(bus, robot, stt, backend)

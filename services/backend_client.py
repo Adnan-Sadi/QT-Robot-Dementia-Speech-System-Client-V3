@@ -2,7 +2,7 @@ import json
 import asyncio
 import threading
 from urllib.parse import urlencode
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional
 import contextlib
 
 import aiohttp
@@ -31,11 +31,7 @@ class BackendClient:
         self.refresh: Optional[str] = None
         self.ws_url: Optional[str] = None
 
-        # For request/response pairing in a single-flight fashion
-        self._pending_future: Optional[asyncio.Future] = None
-
-        # Prevents one send operation from overwriting another pending future before the first one completes.
-        self._lock = asyncio.Lock()
+        self._on_llm_response = None  # Set externally via BackendBridge.set_response_callback()
 
     # ---------------------------
     # Lifecycle
@@ -124,9 +120,8 @@ class BackendClient:
                             # Skip if payload is neither string nor dict
                             continue
                         
-                        if self._pending_future and not self._pending_future.done():
-                            # Return tuple: (text, emotion, current_scenario, next_scenario)
-                            self._pending_future.set_result((text, emotion, current_scenario, next_scenario))
+                        if self._on_llm_response:
+                            self._on_llm_response(text, emotion, current_scenario, next_scenario)
 
             elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSE):
                 await self._reconnect_with_backoff()
@@ -144,52 +139,22 @@ class BackendClient:
             except Exception:
                 delay = min(delay * 2, 30)
 
-    # ---------------------------
-    # Public API (async)
-    # ---------------------------
-    async def send_transcription_and_wait(
-        self, 
-        text: str, 
-        emotion: Optional[str] = None,
-        timeout: float = None
-    ) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
-        """Send a transcription (with optional emotion) and wait for the next llm_response.
-        
-        Args:
-            text: The transcription text
-            emotion: Optional emotion to send with transcription
-            timeout: Response timeout in seconds
-            
-        Returns:
-            Tuple of (llm_text, emotion, current_scenario, next_scenario)
-            - For ChatConsumer: (text, emotion, None, None)
-            - For ActivityChatConsumer: (text, emotion, scenario_name, next_scenario_name)
-        """
-        if timeout is None:
-            timeout = settings.DEFAULT_TIMEOUT
-            
-        if not text.strip():
-            return "", None, None, None
-            
-        async with self._lock:
-            self._pending_future = asyncio.get_running_loop().create_future()
-        
-        # Build payload with optional emotion
-        payload: Dict[str, Any] = {"type": "transcription", "data": text}
-        if emotion is not None:
-            payload["emotion"] = emotion
-            print(f"Sending transcription with emotion: {emotion}")
-        else:
-            print("emotion not prvovided, sending transcription without emotion")
-
+    async def send_audio_chunk(self, pcm_bytes: bytes, sample_rate: int = 16000):
+        """Send a raw PCM audio chunk to the backend."""
+        import base64
+        payload = {
+            "type": "audio_data",
+            "data": base64.b64encode(pcm_bytes).decode("utf-8"),
+            "sampleRate": sample_rate,
+        }
         assert self._ws
         await self._ws.send_str(json.dumps(payload))
-        
-        try:
-            return await asyncio.wait_for(self._pending_future, timeout=timeout)
-        finally:
-            async with self._lock:
-                self._pending_future = None
+
+    async def send_trigger(self):
+        """Tell the backend to flush its staged utterances and generate a response."""
+        assert self._ws
+        await self._ws.send_str(json.dumps({"type": "send_staged"}))
+
 
 class BackendBridge:
     """
@@ -227,25 +192,26 @@ class BackendBridge:
             pass
         self._loop.call_soon_threadsafe(self._loop.stop)
 
-    def send_transcript_and_wait(
-        self, 
-        text: str, 
-        emotion: Optional[str] = None,
-        timeout: float = None
-    ) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
-        """Send transcription with optional emotion and wait for response.
-        
-        Returns:
-            Tuple of (llm_text, emotion, current_scenario, next_scenario)
+    def set_response_callback(self, callback):
         """
-        if timeout is None:
-            timeout = settings.DEFAULT_TIMEOUT
-            
+        Register a callable invoked when the backend sends an llm_response.
+        Signature: callback(text: str, emotion: str, current_scenario: str, next_scenario: str)
+        """
+        self._client._on_llm_response = callback
+
+    def send_audio_chunk(self, pcm_bytes: bytes, sample_rate: int = 16000):
+        """Fire-and-forget: send a raw PCM chunk to the backend."""
         if not self._started.is_set():
-            raise RuntimeError("BackendBridge not started. Call start() first.")
-        
-        fut = asyncio.run_coroutine_threadsafe(
-            self._client.send_transcription_and_wait(text, emotion, timeout),
+            return  # Silently drop if not yet connected
+        asyncio.run_coroutine_threadsafe(
+            self._client.send_audio_chunk(pcm_bytes, sample_rate),
             self._loop,
         )
-        return fut.result()
+        # Intentionally no .result() — fire-and-forget
+
+    def send_staged(self):
+        """Block briefly until the trigger message is sent."""
+        if not self._started.is_set():
+            raise RuntimeError("BackendBridge not started. Call start() first.")
+        fut = asyncio.run_coroutine_threadsafe(self._client.send_trigger(), self._loop)
+        fut.result()

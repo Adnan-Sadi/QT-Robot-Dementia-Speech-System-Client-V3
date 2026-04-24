@@ -10,6 +10,10 @@ from services.audio_stream import MicrophoneStream
 from services.event_bus import EventBus
 from config.settings import settings
 
+import numpy as np
+from scipy.signal import resample_poly
+from math import gcd
+
 
 class STTAccumulator:
     """
@@ -19,7 +23,7 @@ class STTAccumulator:
     EventBus. The user decides when to "send" the accumulated transcript.
     """
 
-    def __init__(self, bus: EventBus):
+    def __init__(self, bus: EventBus, backend=None):
         self._bus = bus
         self._aqueue = queue.Queue(maxsize=2000) 
         self._language = settings.DEFAULT_LANGUAGE
@@ -41,6 +45,9 @@ class STTAccumulator:
 
         # Vosk ROS service (only used when STT_ENGINE=vosk)
         self._vosk_service = None
+
+        self._backend = backend          # BackendBridge — for sending audio on Send click
+        self._audio_buffer = bytearray() # Raw PCM accumulation for backend audio sending
 
         # Emotion service for listening feedback
         try:
@@ -112,15 +119,22 @@ class STTAccumulator:
                 self._aqueue.put_nowait(in_data)
             except queue.Full:
                 pass
+            # Accumulate for backend sending on Send click
+            with self._lock:
+                self._audio_buffer.extend(in_data)
         return (None, pyaudio.paContinue)
 
     def _on_audio(self, msg):
         """ROS audio callback — only queue data when listening."""
         if self._listening:
+            chunk = bytes(msg.data)
             try:
-                self._aqueue.put_nowait(bytes(msg.data))
+                self._aqueue.put_nowait(chunk)
             except queue.Full:
                 pass
+            # Accumulate for backend sending on Send click
+            with self._lock:
+                self._audio_buffer.extend(chunk)
 
     # ------------------------------------------------------------------
     # Listening control
@@ -183,11 +197,29 @@ class STTAccumulator:
             text = self._accumulated_text.strip()
             self._accumulated_text = ""
         return text
+    
+    def get_and_clear_audio_buffer(self) -> bytes:
+        """Called when user clicks Send — returns all accumulated PCM resampled to 16000 Hz."""
+        with self._lock:
+            data = bytes(self._audio_buffer)
+            self._audio_buffer = bytearray()
+        return self._resample_to_16k(data)
 
     def _clear_accumulated(self):
         with self._lock:
             self._accumulated_text = ""
+            self._audio_buffer = bytearray() # Clear audio buffer
 
+
+    def _resample_to_16k(self, pcm_bytes: bytes) -> bytes:
+        """Resample raw PCM int16 bytes from self._audio_rate to 16000 Hz if needed."""
+        if self._audio_rate == 16000:
+            return pcm_bytes
+        
+        audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32)
+        g = gcd(self._audio_rate, 16000)
+        audio_resampled = resample_poly(audio, 16000 // g, self._audio_rate // g)
+        return audio_resampled.astype(np.int16).tobytes()
     # ------------------------------------------------------------------
     # Recognition loop
     # ------------------------------------------------------------------
