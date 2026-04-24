@@ -153,7 +153,7 @@ class BackendClient:
     async def send_trigger(self):
         """Tell the backend to flush its staged utterances and generate a response."""
         assert self._ws
-        await self._ws.send_str(json.dumps({"type": "send_staged"}))
+        await self._ws.send_str(json.dumps({"type": "robot_send_staged"}))
 
 
 class BackendBridge:
