@@ -1,13 +1,17 @@
 import sys
 import threading
 import random
-import rospy
-from qt_robot_interface.srv import (
-    speech_say, speech_config, speech_configRequest,
-    behavior_talk_text, emotion_show
-)
-from qt_robot_interface import srv
-from qt_gesture_controller.srv import gesture_play
+try:
+    import rospy
+    from qt_robot_interface.srv import (
+        speech_say, speech_config, speech_configRequest, setVolume, setVolumeRequest,
+        behavior_talk_text, emotion_show
+    )
+    from qt_robot_interface import srv
+    from qt_gesture_controller.srv import gesture_play
+    ROS_AVAILABLE = True
+except ImportError:
+    ROS_AVAILABLE = False
 
 from config.settings import settings
 
@@ -23,6 +27,7 @@ class RobotActions:
         self._behavior_talk_service = None
         self._emotion_show_service = None
         self._gesture_play_service = None
+        self._set_volume_service = None
         self._initialized = False
 
     # ------------------------------------------------------------------
@@ -32,9 +37,13 @@ class RobotActions:
     def initialize(self):
         """Initialize ROS node and all service proxies. Call once at startup."""
         if self._initialized:
-            rospy.loginfo("RobotActions already initialized.")
+            print("RobotActions already initialized.")
             return
-
+        if not ROS_AVAILABLE:
+            print("[RobotActions] ROS not available — running in UI-only mode, robot actions disabled.")
+            self._initialized = True
+            return
+            
         try:
             rospy.init_node('qt_agentic_speech_system', anonymous=True)
             rospy.loginfo("ROS node 'qt_agentic_speech_system' started.")
@@ -45,12 +54,14 @@ class RobotActions:
             rospy.wait_for_service('/qt_robot/behavior/talkText')
             rospy.wait_for_service('/qt_robot/emotion/show')
             rospy.wait_for_service('/qt_robot/gesture/play')
+            rospy.wait_for_service('/qt_robot/setting/setVolume')
 
             self._speech_say_service = rospy.ServiceProxy('/qt_robot/speech/say', speech_say)
             self._speech_config_service = rospy.ServiceProxy('/qt_robot/speech/config', speech_config)
             self._behavior_talk_service = rospy.ServiceProxy('/qt_robot/behavior/talkText', srv.behavior_talk_text)
             self._emotion_show_service = rospy.ServiceProxy('/qt_robot/emotion/show', srv.emotion_show)
             self._gesture_play_service = rospy.ServiceProxy('/qt_robot/gesture/play', gesture_play)
+            self._set_volume_service = rospy.ServiceProxy('/qt_robot/setting/setVolume', setVolume)
 
             rospy.loginfo("All QT Robot services available.")
             self._initialized = True
@@ -68,14 +79,22 @@ class RobotActions:
         if not self._speech_config_service:
             return
         try:
-            req = speech_configRequest()
-            req.language = ""
-            req.pitch = 0
-            req.speed = speed
+            req = speech_configRequest(language='en-US', speed=speed, pitch=0)
             self._speech_config_service(req)
             rospy.loginfo(f"Speech speed set to {speed}.")
         except rospy.ServiceException as e:
             rospy.logerr(f"Speech config failed: {e}")
+
+    def configure_volume(self, volume: int):
+        """Set the robot's speaker volume (0–100)."""
+        if not self._set_volume_service:
+            return
+        try:
+            req = setVolumeRequest(volume=volume)
+            self._set_volume_service(req)
+            rospy.loginfo(f"Volume set to {volume}.")
+        except rospy.ServiceException as e:
+            rospy.logerr(f"Set volume failed: {e}")
 
     def say(self, text, emotion="neutral"):
         """

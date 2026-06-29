@@ -1,7 +1,6 @@
 import time
 import threading
 import traceback
-import rospy
 
 from services.event_bus import EventBus
 from services.backend_client import BackendBridge
@@ -64,6 +63,25 @@ class ChatController:
         self._stt.stop_listening()
         self._backend.stop()
         self._bus.publish("status", "Session ended.")
+    
+    # ------------------------------------------------------------------
+    # Runtime settings
+    # ------------------------------------------------------------------
+    def apply_settings(self, mic_device_index, mic_source, speech_speed: int, volume: int):
+        """
+        Called from the Settings panel to apply runtime configuration.
+        mic_device_index: int or None (None = system default)
+        mic_source: "default" (ReSpeaker ROS topic) or "external" (PyAudio)
+        speech_speed: int (e.g. 50–200)
+        volume: int (0–100)
+        """
+        # Update in-memory settings so the next session start picks them up
+        settings.MIC_SOURCE = mic_source
+        settings.MIC_DEVICE_INDEX = mic_device_index
+
+        # Apply speech settings immediately (safe to call any time)
+        self._robot.configure_speech_speed(speech_speed)
+        self._robot.configure_volume(volume)
 
     # ------------------------------------------------------------------
     # Turn-taking: user sends accumulated transcript

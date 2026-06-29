@@ -2,9 +2,14 @@ import queue
 import threading
 import time
 import random
-import rospy
-from audio_common_msgs.msg import AudioData
-from qt_robot_interface import srv
+# making rospy optional for testing without ROS
+try:
+    import rospy
+    from audio_common_msgs.msg import AudioData
+    from qt_robot_interface import srv
+    ROS_AVAILABLE = True
+except ImportError:
+    ROS_AVAILABLE = False
 
 from services.audio_stream import MicrophoneStream
 from services.event_bus import EventBus
@@ -46,12 +51,13 @@ class STTAccumulator:
         self._audio_buffer = bytearray() # Raw PCM accumulation for backend audio sending
 
         # Emotion service for listening feedback
-        try:
-            rospy.wait_for_service('/qt_robot/emotion/show', timeout=5)
-            self._emotion_service = rospy.ServiceProxy('/qt_robot/emotion/show', srv.emotion_show)
-        except Exception:
-            self._emotion_service = None
-
+        self._emotion_service = None
+        if ROS_AVAILABLE:
+            try:
+                rospy.wait_for_service('/qt_robot/emotion/show', timeout=5)
+                self._emotion_service = rospy.ServiceProxy('/qt_robot/emotion/show', srv.emotion_show)
+            except Exception:
+                self._emotion_service = None
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
@@ -61,9 +67,10 @@ class STTAccumulator:
         if settings.MIC_SOURCE == "external":
             self._setup_external_mic()
         else:
-            self._audio_sub = rospy.Subscriber(
-                '/qt_respeaker_app/channel0', AudioData, self._on_audio
-            )
+            if ROS_AVAILABLE:
+                self._audio_sub = rospy.Subscriber(
+                    '/qt_respeaker_app/channel0', AudioData, self._on_audio
+                )
 
     def _setup_external_mic(self):
         """Open a PyAudio stream for the external USB microphone."""
@@ -78,10 +85,10 @@ class STTAccumulator:
         # Log the device being used
         if device_index is not None:
             dev_info = self._pyaudio.get_device_info_by_index(device_index)
-            rospy.loginfo(f"External mic: using device {device_index} — {dev_info['name']}")
+            print(f"External mic: using device {device_index} — {dev_info['name']}")
         else:
             dev_info = self._pyaudio.get_default_input_device_info()
-            rospy.loginfo(f"External mic: using system default — {dev_info['name']}")
+            print(f"External mic: using system default — {dev_info['name']}")
 
         CHUNK = 1024  # frames per buffer
 
@@ -255,7 +262,7 @@ class STTAccumulator:
 
             except Exception as e:
                 if self._running:
-                    rospy.logwarn(f"STT stream error (will retry): {e}")
+                    print(f"STT stream error (will retry): {e}")
                     time.sleep(1.0)
 
     def _process_responses(self, responses):
@@ -307,4 +314,29 @@ class STTAccumulator:
             emotion_name = random.choice(settings.EMOTION_LISTENING)
             self._emotion_service(emotion_name)
         except Exception as e:
-            rospy.logwarn(f"Listening emotion failed: {e}")
+            print(f"Listening emotion failed: {e}")
+    # ------------------------------------------------------------------
+    # List audio input devices
+    # ------------------------------------------------------------------
+    @staticmethod
+    def list_audio_input_devices() -> list:
+        """
+        Returns a list of dicts describing available PyAudio input devices.
+        Each dict has: {'index': int, 'name': str, 'sample_rate': int}
+        Safe to call before ROS is initialised.
+        """
+        import pyaudio
+        devices = []
+        pa = pyaudio.PyAudio()
+        try:
+            for i in range(pa.get_device_count()):
+                info = pa.get_device_info_by_index(i)
+                if info.get('maxInputChannels', 0) > 0:
+                    devices.append({
+                        'index': i,
+                        'name': info['name'],
+                        'sample_rate': int(info['defaultSampleRate']),
+                    })
+        finally:
+            pa.terminate()
+        return devices

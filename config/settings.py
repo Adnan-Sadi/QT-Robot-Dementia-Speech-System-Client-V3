@@ -21,8 +21,9 @@ class Settings:
     MIC_SOURCE = os.getenv("MIC_SOURCE", "default").lower()
     MIC_DEVICE_INDEX = os.getenv("MIC_DEVICE_INDEX", None)
     
-    # Speech Speed
+    # Speech Configuration
     SPEECH_SPEED = int(os.getenv("SPEECH_SPEED", "90"))
+    SPEECH_VOLUME = int(os.getenv("SPEECH_VOLUME", "80"))
     
     # Timeout Configuration
     DEFAULT_TIMEOUT = float(os.getenv("DEFAULT_TIMEOUT", "20.0"))

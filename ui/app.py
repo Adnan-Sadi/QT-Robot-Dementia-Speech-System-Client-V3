@@ -1,6 +1,7 @@
 import customtkinter as ctk
 from ui.widgets.transcript_panel import TranscriptPanel
 from ui.widgets.status_bar import StatusBar
+from ui.widgets.settings_panel import SettingsPanel
 
 
 class MainWindow(ctk.CTk):
@@ -36,6 +37,13 @@ class MainWindow(ctk.CTk):
             command=self._on_stop, state="disabled"
         )
         self._stop_btn.pack(side="left", padx=6, pady=8)
+
+        self._settings_btn = ctk.CTkButton(
+            toolbar, text="⚙  Settings", width=120,
+            fg_color="gray30", hover_color="gray20",
+            command=self._on_settings
+        )
+        self._settings_btn.pack(side="left", padx=6, pady=8)
 
         # ── Chat area ──
         self._transcript = TranscriptPanel(self)
@@ -90,6 +98,9 @@ class MainWindow(ctk.CTk):
     def _on_send(self):
         self._send_btn.configure(state="disabled")
         self._controller.send_message()
+    
+    def _on_settings(self):
+        SettingsPanel(self, self._controller)
 
     # ------------------------------------------------------------------
     # Event bus polling
