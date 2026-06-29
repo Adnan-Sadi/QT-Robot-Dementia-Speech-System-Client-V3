@@ -53,5 +53,8 @@ venv.bak/
 .dmypy.json
 dmypy.json
 
+# test files (any files that start with test_)
+test_*
+
 # vscode settings
 .vscode/

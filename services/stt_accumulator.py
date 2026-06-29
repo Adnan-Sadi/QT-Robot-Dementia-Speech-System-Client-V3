@@ -11,8 +11,7 @@ from services.event_bus import EventBus
 from config.settings import settings
 
 import numpy as np
-from scipy.signal import resample_poly
-from math import gcd
+import librosa
 
 
 class STTAccumulator:
@@ -210,16 +209,23 @@ class STTAccumulator:
             self._accumulated_text = ""
             self._audio_buffer = bytearray() # Clear audio buffer
 
-
     def _resample_to_16k(self, pcm_bytes: bytes) -> bytes:
-        """Resample raw PCM int16 bytes from self._audio_rate to 16000 Hz if needed."""
+        """Resample raw PCM int16 bytes from self._audio_rate to 16000 Hz.
+        
+        Uses librosa.resample with float32 normalisation to avoid int16 clipping distortion.
+        """
         if self._audio_rate == 16000:
             return pcm_bytes
-        
-        audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32)
-        g = gcd(self._audio_rate, 16000)
-        audio_resampled = resample_poly(audio, 16000 // g, self._audio_rate // g)
-        return audio_resampled.astype(np.int16).tobytes()
+
+        # Convert int16 PCM → float32 normalised to [-1.0, 1.0]
+        audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+        # Resample using librosa 
+        audio_resampled = librosa.resample(audio, orig_sr=self._audio_rate, target_sr=16000)
+
+        # Clip to prevent any overflow, then convert back to int16
+        audio_resampled = np.clip(audio_resampled, -1.0, 1.0)
+        return (audio_resampled * 32767).astype(np.int16).tobytes()
     # ------------------------------------------------------------------
     # Recognition loop
     # ------------------------------------------------------------------
