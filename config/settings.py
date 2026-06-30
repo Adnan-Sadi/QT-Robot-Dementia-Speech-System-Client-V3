@@ -24,6 +24,7 @@ class Settings:
     # Speech Configuration
     SPEECH_SPEED = int(os.getenv("SPEECH_SPEED", "90"))
     SPEECH_VOLUME = int(os.getenv("SPEECH_VOLUME", "80"))
+    GREETING_TEXT  = os.getenv("GREETING_TEXT", "Hello! How are you feeling today?")
     
     # Timeout Configuration
     DEFAULT_TIMEOUT = float(os.getenv("DEFAULT_TIMEOUT", "20.0"))

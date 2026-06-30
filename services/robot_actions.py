@@ -148,6 +148,29 @@ class RobotActions:
         except Exception as e:
             rospy.logwarn(f"Gesture play failed: {e}")
 
+    def greet(self, greeting_text: str):
+        """
+        Play a wakeup gesture, show a happy emotion, then speak the greeting.
+        Blocks until speech is complete, controller uses this to know when to start listening.
+        Called once at the start of each session.
+        """
+        if not ROS_AVAILABLE:
+            print(f"[RobotActions] greet() called (no-op in UI-only mode): '{greeting_text}'")
+            return
+
+        # Play wakeup gesture in background (non-blocking, overlaps with emotion + speech start)
+        threading.Thread(target=self._play_gesture, args=("QT/happy",), daemon=True).start()
+
+        # Show a happy face
+        try:
+            if self._emotion_show_service:
+                self._emotion_show_service("QT/yawn")
+        except Exception as e:
+            print(f"[RobotActions] greet emotion failed: {e}")
+
+        # Speak the greeting (blocking — returns when robot finishes speaking)
+        self.say(greeting_text, emotion="happy")
+
     # ------------------------------------------------------------------
     # Future: execute backend-commanded actions
     # ------------------------------------------------------------------

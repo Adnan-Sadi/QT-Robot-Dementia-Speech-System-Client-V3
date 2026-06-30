@@ -48,8 +48,13 @@ class ChatController:
             try:
                 self._backend.start()
                 self._bus.publish("status", "Connected. Starting listener...")
+
+                # Play wakeup gesture and speak greeting before listening starts.
+                self._robot.greet(settings.GREETING_TEXT)
+
                 self._stt.setup_ros_audio()
                 self._stt.start_listening()
+                
             except Exception as e:
                 self._bus.publish("error", f"Failed to start: {e}")
                 self._session_active = False
