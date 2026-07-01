@@ -62,7 +62,7 @@ class RobotActions:
             self._behavior_talk_service = rospy.ServiceProxy('/qt_robot/behavior/talkText', srv.behavior_talk_text)
             self._emotion_show_service = rospy.ServiceProxy('/qt_robot/emotion/show', srv.emotion_show)
             self._gesture_play_service = rospy.ServiceProxy('/qt_robot/gesture/play', gesture_play)
-            self._set_volume_service = rospy.ServiceProxy('/qt_robot/setting/setVolume', setVolume)
+            self._set_volume_service = rospy.ServiceProxy('/qt_robot/setting/setVolume', setting_setVolume,)
 
             rospy.loginfo("All QT Robot services available.")
             self._initialized = True
@@ -91,7 +91,7 @@ class RobotActions:
         if not self._set_volume_service:
             return
         try:
-            req = setVolumeRequest(volume=volume)
+            req = setting_setVolumeRequest(volume=volume)
             self._set_volume_service(req)
             rospy.loginfo(f"Volume set to {volume}.")
         except rospy.ServiceException as e:
