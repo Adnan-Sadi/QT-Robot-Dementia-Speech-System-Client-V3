@@ -1,4 +1,5 @@
 import sys
+import time
 import threading
 import random
 try:
@@ -148,6 +149,9 @@ class RobotActions:
         except Exception as e:
             rospy.logwarn(f"Gesture play failed: {e}")
 
+    ## ------------------------------------------------------------------
+    # Greeting The user at the start of the session
+    ## ------------------------------------------------------------------
     def greet(self, greeting_text: str):
         """
         Play a wakeup gesture, show a happy emotion, then speak the greeting.
@@ -158,15 +162,18 @@ class RobotActions:
             print(f"[RobotActions] greet() called (no-op in UI-only mode): '{greeting_text}'")
             return
 
-        # Play wakeup gesture in background (non-blocking, overlaps with emotion + speech start)
-        threading.Thread(target=self._play_gesture, args=("QT/happy",), daemon=True).start()
-
-        # Show a happy face
+        # Show yawn emotion first
         try:
             if self._emotion_show_service:
                 self._emotion_show_service("QT/yawn")
         except Exception as e:
             print(f"[RobotActions] greet emotion failed: {e}")
+
+        # Play wakeup arm gesture in background — starts while the yawn face is showing
+        threading.Thread(target=self._play_gesture, args=("QT/happy",), daemon=True).start()
+
+        # Small pause so the emotion animation has time to fully display before lips start moving
+        time.sleep(2.0)
 
         # Speak the greeting (blocking — returns when robot finishes speaking)
         self.say(greeting_text, emotion="happy")

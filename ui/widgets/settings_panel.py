@@ -19,7 +19,9 @@ class SettingsPanel(ctk.CTkToplevel):
         self.title("Settings")
         self.geometry("440x320")
         self.resizable(False, False)
-        self.grab_set()  # Make modal — blocks interaction with main window
+        # Defer grab_set() until the window is actually visible on screen.
+        # Calling it immediately fails on Linux/Tk because the window isn't rendered yet.
+        self.after(100, self._safe_grab)
 
         self._controller = controller
 
@@ -151,3 +153,10 @@ class SettingsPanel(ctk.CTkToplevel):
         # Update in-memory defaults so sliders are correct if panel is re-opened
         settings.SPEECH_SPEED = speech_speed
         settings.SPEECH_VOLUME = volume
+    
+    def _safe_grab(self):
+        """Delayed grab_set — called after the window is fully rendered."""
+        try:
+            self.grab_set()
+        except Exception:
+            pass  # Non-fatal: window still works, just not strictly modal
