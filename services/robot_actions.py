@@ -2,17 +2,17 @@ import sys
 import time
 import threading
 import random
-try:
-    import rospy
-    from qt_robot_interface.srv import (
-        speech_say, speech_config, speech_configRequest, setVolume, setVolumeRequest,
-        behavior_talk_text, emotion_show
-    )
-    from qt_robot_interface import srv
-    from qt_gesture_controller.srv import gesture_play
-    ROS_AVAILABLE = True
-except ImportError:
-    ROS_AVAILABLE = False
+# try:
+import rospy
+from qt_robot_interface.srv import (
+    speech_say, speech_config, speech_configRequest, setVolume, setVolumeRequest,
+    behavior_talk_text, emotion_show
+)
+from qt_robot_interface import srv
+from qt_gesture_controller.srv import gesture_play
+ROS_AVAILABLE = True
+# except ImportError:
+#     ROS_AVAILABLE = False
 
 from config.settings import settings
 
