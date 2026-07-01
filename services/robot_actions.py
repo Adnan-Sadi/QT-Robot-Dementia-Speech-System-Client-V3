@@ -5,7 +5,7 @@ import random
 # try:
 import rospy
 from qt_robot_interface.srv import (
-    speech_say, speech_config, speech_configRequest, setVolume, setVolumeRequest,
+    speech_say, speech_config, speech_configRequest, setting_setVolume, setting_setVolumeRequest,
     behavior_talk_text, emotion_show
 )
 from qt_robot_interface import srv
