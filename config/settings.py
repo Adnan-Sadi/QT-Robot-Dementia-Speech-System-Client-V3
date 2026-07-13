@@ -10,9 +10,6 @@ class Settings:
     SOURCE = os.getenv("SOURCE", "qtrobot")
     USERNAME = os.getenv("USERNAME")
     PASSWORD = os.getenv("PASSWORD")
-
-    # STT Configuration
-    STT_ENGINE = os.getenv("STT_ENGINE", "gspeech").lower()
     
     # Audio Configuration
     AUDIO_RATE = int(os.getenv("AUDIO_RATE", "16000"))
@@ -24,8 +21,10 @@ class Settings:
     MIC_SOURCE = os.getenv("MIC_SOURCE", "default").lower()
     MIC_DEVICE_INDEX = os.getenv("MIC_DEVICE_INDEX", None)
     
-    # Speech Speed
+    # Speech Configuration
     SPEECH_SPEED = int(os.getenv("SPEECH_SPEED", "90"))
+    SPEECH_VOLUME = int(os.getenv("SPEECH_VOLUME", "80"))
+    GREETING_TEXT  = os.getenv("GREETING_TEXT", "Hello! How are you feeling today?")
     
     # Timeout Configuration
     DEFAULT_TIMEOUT = float(os.getenv("DEFAULT_TIMEOUT", "20.0"))

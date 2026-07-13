@@ -2,13 +2,21 @@ import queue
 import threading
 import time
 import random
+# making rospy optional for testing without ROS
+# try:
 import rospy
 from audio_common_msgs.msg import AudioData
 from qt_robot_interface import srv
+ROS_AVAILABLE = True
+# except ImportError:
+#     ROS_AVAILABLE = False
 
 from services.audio_stream import MicrophoneStream
 from services.event_bus import EventBus
 from config.settings import settings
+
+import numpy as np
+import librosa
 
 
 class STTAccumulator:
@@ -19,7 +27,7 @@ class STTAccumulator:
     EventBus. The user decides when to "send" the accumulated transcript.
     """
 
-    def __init__(self, bus: EventBus):
+    def __init__(self, bus: EventBus, backend=None):
         self._bus = bus
         self._aqueue = queue.Queue(maxsize=2000) 
         self._language = settings.DEFAULT_LANGUAGE
@@ -39,39 +47,30 @@ class STTAccumulator:
         # ROS subscriber for audio
         self._audio_sub = None
 
-        # Vosk ROS service (only used when STT_ENGINE=vosk)
-        self._vosk_service = None
+        self._backend = backend          # BackendBridge — for sending audio on Send click
+        self._audio_buffer = bytearray() # Raw PCM accumulation for backend audio sending
 
         # Emotion service for listening feedback
-        try:
-            rospy.wait_for_service('/qt_robot/emotion/show', timeout=5)
-            self._emotion_service = rospy.ServiceProxy('/qt_robot/emotion/show', srv.emotion_show)
-        except Exception:
-            self._emotion_service = None
-
+        self._emotion_service = None
+        if ROS_AVAILABLE:
+            try:
+                rospy.wait_for_service('/qt_robot/emotion/show', timeout=5)
+                self._emotion_service = rospy.ServiceProxy('/qt_robot/emotion/show', srv.emotion_show)
+            except Exception:
+                self._emotion_service = None
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
 
     def setup_ros_audio(self):
-        """Subscribe to the robot's audio topic or set up Vosk ROS service."""
-        if settings.STT_ENGINE == "vosk":
-            self._setup_vosk()
+        """Subscribe to the robot's audio topic."""
+        if settings.MIC_SOURCE == "external":
+            self._setup_external_mic()
         else:
-            # Google Speech: need the audio stream
-            if settings.MIC_SOURCE == "external":
-                self._setup_external_mic()
-            else:
+            if ROS_AVAILABLE:
                 self._audio_sub = rospy.Subscriber(
                     '/qt_respeaker_app/channel0', AudioData, self._on_audio
                 )
-
-    def _setup_vosk(self):
-        """Set up the QT robot's built-in Vosk speech recognition service."""
-        from qt_vosk_app.srv import speech_recognize
-        rospy.loginfo("STT engine: vosk. Using /qt_robot/speech/recognize service.")
-        rospy.wait_for_service('/qt_robot/speech/recognize', timeout=10)
-        self._vosk_service = rospy.ServiceProxy('/qt_robot/speech/recognize', speech_recognize)
 
     def _setup_external_mic(self):
         """Open a PyAudio stream for the external USB microphone."""
@@ -86,10 +85,10 @@ class STTAccumulator:
         # Log the device being used
         if device_index is not None:
             dev_info = self._pyaudio.get_device_info_by_index(device_index)
-            rospy.loginfo(f"External mic: using device {device_index} — {dev_info['name']}")
+            print(f"External mic: using device {device_index} — {dev_info['name']}")
         else:
             dev_info = self._pyaudio.get_default_input_device_info()
-            rospy.loginfo(f"External mic: using system default — {dev_info['name']}")
+            print(f"External mic: using system default — {dev_info['name']}")
 
         CHUNK = 1024  # frames per buffer
 
@@ -112,15 +111,22 @@ class STTAccumulator:
                 self._aqueue.put_nowait(in_data)
             except queue.Full:
                 pass
+            # Accumulate for backend sending on Send click
+            with self._lock:
+                self._audio_buffer.extend(in_data)
         return (None, pyaudio.paContinue)
 
     def _on_audio(self, msg):
         """ROS audio callback — only queue data when listening."""
         if self._listening:
+            chunk = bytes(msg.data)
             try:
-                self._aqueue.put_nowait(bytes(msg.data))
+                self._aqueue.put_nowait(chunk)
             except queue.Full:
                 pass
+            # Accumulate for backend sending on Send click
+            with self._lock:
+                self._audio_buffer.extend(chunk)
 
     # ------------------------------------------------------------------
     # Listening control
@@ -136,13 +142,7 @@ class STTAccumulator:
         self._clear_accumulated()
         self._aqueue.queue.clear()
 
-        # Pick the right recognition loop based on STT engine
-        if settings.STT_ENGINE == "vosk":
-            target = self._vosk_recognition_loop
-        else:
-            target = self._recognition_loop
-
-        self._listen_thread = threading.Thread(target=target, daemon=True)
+        self._listen_thread = threading.Thread(target=self._recognition_loop, daemon=True)
         self._listen_thread.start()
 
         self._bus.publish("status", "Listening...")
@@ -183,11 +183,36 @@ class STTAccumulator:
             text = self._accumulated_text.strip()
             self._accumulated_text = ""
         return text
+    
+    def get_and_clear_audio_buffer(self) -> bytes:
+        """Called when user clicks Send — returns all accumulated PCM resampled to 16000 Hz."""
+        with self._lock:
+            data = bytes(self._audio_buffer)
+            self._audio_buffer = bytearray()
+        return self._resample_to_16k(data)
 
     def _clear_accumulated(self):
         with self._lock:
             self._accumulated_text = ""
+            self._audio_buffer = bytearray() # Clear audio buffer
 
+    def _resample_to_16k(self, pcm_bytes: bytes) -> bytes:
+        """Resample raw PCM int16 bytes from self._audio_rate to 16000 Hz.
+        
+        Uses librosa.resample with float32 normalisation to avoid int16 clipping distortion.
+        """
+        if self._audio_rate == 16000:
+            return pcm_bytes
+
+        # Convert int16 PCM → float32 normalised to [-1.0, 1.0]
+        audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+        # Resample using librosa 
+        audio_resampled = librosa.resample(audio, orig_sr=self._audio_rate, target_sr=16000)
+
+        # Clip to prevent any overflow, then convert back to int16
+        audio_resampled = np.clip(audio_resampled, -1.0, 1.0)
+        return (audio_resampled * 32767).astype(np.int16).tobytes()
     # ------------------------------------------------------------------
     # Recognition loop
     # ------------------------------------------------------------------
@@ -237,50 +262,7 @@ class STTAccumulator:
 
             except Exception as e:
                 if self._running:
-                    rospy.logwarn(f"STT stream error (will retry): {e}")
-                    time.sleep(1.0)
-
-    def _vosk_recognition_loop(self):
-        """Vosk recognition loop — uses QT robot's built-in ROS service.
-        
-        Unlike Google Speech, Vosk doesn't provide interim results.
-        Each service call blocks until the user finishes speaking or timeout.
-        The final transcript is then accumulated just like with Google Speech.
-        """
-        from qt_vosk_app.srv import speech_recognizeRequest
-
-        while self._running:
-            if not self._listening:
-                time.sleep(0.1)
-                continue
-
-            try:
-                req = speech_recognizeRequest()
-                req.timeout = int(settings.DEFAULT_TIMEOUT)
-                req.language = self._language
-
-                resp = self._vosk_service(req)
-                transcript = getattr(resp, "transcript", "")
-
-                if transcript and self._listening and self._running:
-                    with self._lock:
-                        if self._accumulated_text:
-                            self._accumulated_text += " " + transcript
-                        else:
-                            self._accumulated_text = transcript
-
-                    with self._lock:
-                        full_text = self._accumulated_text
-                    # Publish as final (no interim available with Vosk)
-                    self._bus.publish("stt_final", full_text)
-
-            except rospy.ServiceException as e:
-                if self._running:
-                    rospy.logwarn(f"Vosk service error (will retry): {e}")
-                    time.sleep(1.0)
-            except Exception as e:
-                if self._running:
-                    rospy.logwarn(f"Vosk recognition error (will retry): {e}")
+                    print(f"STT stream error (will retry): {e}")
                     time.sleep(1.0)
 
     def _process_responses(self, responses):
@@ -332,4 +314,29 @@ class STTAccumulator:
             emotion_name = random.choice(settings.EMOTION_LISTENING)
             self._emotion_service(emotion_name)
         except Exception as e:
-            rospy.logwarn(f"Listening emotion failed: {e}")
+            print(f"Listening emotion failed: {e}")
+    # ------------------------------------------------------------------
+    # List audio input devices
+    # ------------------------------------------------------------------
+    @staticmethod
+    def list_audio_input_devices() -> list:
+        """
+        Returns a list of dicts describing available PyAudio input devices.
+        Each dict has: {'index': int, 'name': str, 'sample_rate': int}
+        Safe to call before ROS is initialised.
+        """
+        import pyaudio
+        devices = []
+        pa = pyaudio.PyAudio()
+        try:
+            for i in range(pa.get_device_count()):
+                info = pa.get_device_info_by_index(i)
+                if info.get('maxInputChannels', 0) > 0:
+                    devices.append({
+                        'index': i,
+                        'name': info['name'],
+                        'sample_rate': int(info['defaultSampleRate']),
+                    })
+        finally:
+            pa.terminate()
+        return devices

@@ -1,13 +1,18 @@
 import sys
+import time
 import threading
 import random
+# try:
 import rospy
 from qt_robot_interface.srv import (
-    speech_say, speech_config, speech_configRequest,
+    speech_say, speech_config, speech_configRequest, setting_setVolume, setting_setVolumeRequest,
     behavior_talk_text, emotion_show
 )
 from qt_robot_interface import srv
 from qt_gesture_controller.srv import gesture_play
+ROS_AVAILABLE = True
+# except ImportError:
+#     ROS_AVAILABLE = False
 
 from config.settings import settings
 
@@ -23,6 +28,7 @@ class RobotActions:
         self._behavior_talk_service = None
         self._emotion_show_service = None
         self._gesture_play_service = None
+        self._set_volume_service = None
         self._initialized = False
 
     # ------------------------------------------------------------------
@@ -32,9 +38,13 @@ class RobotActions:
     def initialize(self):
         """Initialize ROS node and all service proxies. Call once at startup."""
         if self._initialized:
-            rospy.loginfo("RobotActions already initialized.")
+            print("RobotActions already initialized.")
             return
-
+        if not ROS_AVAILABLE:
+            print("[RobotActions] ROS not available — running in UI-only mode, robot actions disabled.")
+            self._initialized = True
+            return
+            
         try:
             rospy.init_node('qt_agentic_speech_system', anonymous=True)
             rospy.loginfo("ROS node 'qt_agentic_speech_system' started.")
@@ -45,12 +55,14 @@ class RobotActions:
             rospy.wait_for_service('/qt_robot/behavior/talkText')
             rospy.wait_for_service('/qt_robot/emotion/show')
             rospy.wait_for_service('/qt_robot/gesture/play')
+            rospy.wait_for_service('/qt_robot/setting/setVolume')
 
             self._speech_say_service = rospy.ServiceProxy('/qt_robot/speech/say', speech_say)
             self._speech_config_service = rospy.ServiceProxy('/qt_robot/speech/config', speech_config)
             self._behavior_talk_service = rospy.ServiceProxy('/qt_robot/behavior/talkText', srv.behavior_talk_text)
             self._emotion_show_service = rospy.ServiceProxy('/qt_robot/emotion/show', srv.emotion_show)
             self._gesture_play_service = rospy.ServiceProxy('/qt_robot/gesture/play', gesture_play)
+            self._set_volume_service = rospy.ServiceProxy('/qt_robot/setting/setVolume', setting_setVolume,)
 
             rospy.loginfo("All QT Robot services available.")
             self._initialized = True
@@ -68,14 +80,22 @@ class RobotActions:
         if not self._speech_config_service:
             return
         try:
-            req = speech_configRequest()
-            req.language = ""
-            req.pitch = 0
-            req.speed = speed
+            req = speech_configRequest(language='en-US', speed=speed, pitch=0)
             self._speech_config_service(req)
             rospy.loginfo(f"Speech speed set to {speed}.")
         except rospy.ServiceException as e:
             rospy.logerr(f"Speech config failed: {e}")
+
+    def configure_volume(self, volume: int):
+        """Set the robot's speaker volume (0–100)."""
+        if not self._set_volume_service:
+            return
+        try:
+            req = setting_setVolumeRequest(volume=volume)
+            self._set_volume_service(req)
+            rospy.loginfo(f"Volume set to {volume}.")
+        except rospy.ServiceException as e:
+            rospy.logerr(f"Set volume failed: {e}")
 
     def say(self, text, emotion="neutral"):
         """
@@ -128,6 +148,35 @@ class RobotActions:
                 self._gesture_play_service("QT/neutral", 0)
         except Exception as e:
             rospy.logwarn(f"Gesture play failed: {e}")
+
+    ## ------------------------------------------------------------------
+    # Greeting The user at the start of the session
+    ## ------------------------------------------------------------------
+    def greet(self, greeting_text: str):
+        """
+        Play a wakeup gesture, show a happy emotion, then speak the greeting.
+        Blocks until speech is complete, controller uses this to know when to start listening.
+        Called once at the start of each session.
+        """
+        if not ROS_AVAILABLE:
+            print(f"[RobotActions] greet() called (no-op in UI-only mode): '{greeting_text}'")
+            return
+
+        # Show yawn emotion first
+        try:
+            if self._emotion_show_service:
+                self._emotion_show_service("QT/yawn")
+        except Exception as e:
+            print(f"[RobotActions] greet emotion failed: {e}")
+
+        # Play wakeup arm gesture in background — starts while the yawn face is showing
+        threading.Thread(target=self._play_gesture, args=("QT/happy",), daemon=True).start()
+
+        # Small pause so the emotion animation has time to fully display before lips start moving
+        time.sleep(2.0)
+
+        # Speak the greeting (blocking — returns when robot finishes speaking)
+        self.say(greeting_text, emotion="happy")
 
     # ------------------------------------------------------------------
     # Future: execute backend-commanded actions
