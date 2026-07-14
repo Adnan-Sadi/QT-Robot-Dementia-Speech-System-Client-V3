@@ -2,6 +2,7 @@ import customtkinter as ctk
 
 from config.settings import settings
 from services.stt_accumulator import STTAccumulator
+from config.user_settings import save_user_settings
 
 
 class SettingsPanel(ctk.CTkFrame):
@@ -200,11 +201,18 @@ class SettingsPanel(ctk.CTkFrame):
         if selected == self._ROS_MIC_LABEL:
             mic_source = "default"
             mic_device_index = None
+            mic_device_name = None
         else:
             # Parse the index out of "[N] Name (Hz)"
             mic_source = "external"
+            mic_device_index = None
+            mic_device_name = None
             try:
                 mic_device_index = int(selected.split("]")[0].lstrip("["))
+                # Look up the full device name by index for reliable future matching
+                match = next((d for d in self._devices if d["index"] == mic_device_index), None)
+                if match:
+                    mic_device_name = match["name"]
             except (ValueError, IndexError):
                 mic_device_index = None
 
@@ -214,9 +222,14 @@ class SettingsPanel(ctk.CTkFrame):
             speech_speed=None,
             volume=None,
         )
-        # Update in-memory settings
+        # Update in-memory settings (including device name for future index resolution)
         settings.MIC_SOURCE = mic_source
         settings.MIC_DEVICE_INDEX = mic_device_index
+        settings.MIC_DEVICE_NAME = mic_device_name
+
+    def save_current_settings(self):
+        """Persist the current in-memory settings to disk. Called on window close."""
+        save_user_settings(settings)
 
     # ------------------------------------------------------------------
     # Helpers

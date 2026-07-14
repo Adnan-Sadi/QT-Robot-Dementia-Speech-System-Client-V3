@@ -89,6 +89,9 @@ class MainWindow(ctk.CTk):
         # Start event polling
         self._poll_bus()
 
+        # Save settings when the window is closed
+        self.protocol("WM_DELETE_WINDOW", self._on_window_close)
+
     # ------------------------------------------------------------------
     # Button handlers
     # ------------------------------------------------------------------
@@ -116,6 +119,11 @@ class MainWindow(ctk.CTk):
         # Font size is not routed through apply_settings, so save directly here
         settings.TRANSCRIPT_FONT_SIZE = size
         save_user_settings(settings)
+
+    def _on_window_close(self):
+        """Called when the user closes the window. Saves settings before exiting."""
+        self._settings.save_current_settings()
+        self.destroy()
 
     # ------------------------------------------------------------------
     # Close-session countdown
