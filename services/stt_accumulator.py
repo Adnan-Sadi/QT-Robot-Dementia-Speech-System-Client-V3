@@ -136,8 +136,10 @@ class STTAccumulator:
         if hasattr(self, '_pa_stream') and self._pa_stream is not None:
             self._pa_stream.stop_stream()
             self._pa_stream.close()
+            self._pa_stream = None
         if hasattr(self, '_pyaudio') and self._pyaudio is not None:
             self._pyaudio.terminate()
+            self._pyaudio = None
 
     def pause_listening(self):
         """Temporarily pause audio capture (robot is speaking), keep state alive."""

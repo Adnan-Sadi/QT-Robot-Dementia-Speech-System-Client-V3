@@ -2,6 +2,8 @@ import customtkinter as ctk
 from ui.widgets.transcript_panel import TranscriptPanel
 from ui.widgets.status_bar import StatusBar
 from ui.widgets.settings_panel import SettingsPanel
+from config.user_settings import save_user_settings
+from config.settings import settings
 
 
 class MainWindow(ctk.CTk):
@@ -54,8 +56,9 @@ class MainWindow(ctk.CTk):
         self._transcript = TranscriptPanel(content_frame)
         self._transcript.grid(row=0, column=1, sticky="nsew")
 
-        # self._transcript.append_assistant("Hello! I'm QT. How are you feeling today?")
-        # self._transcript.append_assistant("That's wonderful to hear! Would you like to talk about something?")
+        # Dummy text for layout testing
+        #self._transcript.append_assistant("Hello! I'm QT. How are you feeling today?")
+        #self._transcript.append_assistant("That's wonderful to hear! Would you like to talk about something?")
 
         # ── Input bar (transcript preview + Send button) ──
         input_frame = ctk.CTkFrame(self)
@@ -64,7 +67,7 @@ class MainWindow(ctk.CTk):
 
         self._transcript_preview = ctk.CTkLabel(
             input_frame,
-            text="(Start chat and speak",
+            text="(Start chat and speak — your words will appear here)",
             anchor="w",
             wraplength=600,
             text_color="gray",
@@ -110,6 +113,21 @@ class MainWindow(ctk.CTk):
     def set_transcript_font_size(self, size: int):
         """Called by SettingsPanel when the font size slider is moved."""
         self._transcript.set_font_size(size)
+        # Font size is not routed through apply_settings, so save directly here
+        settings.TRANSCRIPT_FONT_SIZE = size
+        save_user_settings(settings)
+
+    # ------------------------------------------------------------------
+    # Close-session countdown
+    # ------------------------------------------------------------------
+
+    def _begin_close_countdown(self, seconds_remaining=5):
+        """Show a countdown in the status bar, then destroy the window."""
+        if seconds_remaining > 0:
+            self._status.set(f"Session complete. Window closing in {seconds_remaining}s...")
+            self.after(1000, lambda: self._begin_close_countdown(seconds_remaining - 1))
+        else:
+            self.destroy()
 
     # ------------------------------------------------------------------
     # Event bus polling
@@ -152,6 +170,13 @@ class MainWindow(ctk.CTk):
             elif kind == "error":
                 self._transcript.append_system(f"⚠ {ev.text}")
                 self._send_btn.configure(state="normal")
+
+            elif kind == "close_session":
+                # Robot has finished its final utterance — reset UI state and begin countdown
+                self._start_btn.configure(state="normal")
+                self._stop_btn.configure(state="disabled")
+                self._send_btn.configure(state="disabled")
+                self._begin_close_countdown(seconds=5)
 
             ev = self._bus.try_get()
 
