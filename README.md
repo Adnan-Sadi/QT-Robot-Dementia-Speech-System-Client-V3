@@ -53,7 +53,6 @@ QT_Robot_Dementia_Speech_System_Client/
 │   └── chat_controller.py       # Main turn-taking orchestration
 │
 ├── services/
-│   ├── audio_stream.py          # Audio queue stream helper
 │   ├── backend_client.py        # Backend auth + WebSocket client
 │   ├── event_bus.py             # UI/service event communication
 │   ├── robot_actions.py         # QT Robot speech / gesture / emotion helpers
@@ -131,11 +130,7 @@ Create a `.env` file in the repository root. You can copy the `.env.example` fil
 | `MIC_SOURCE` | Audio source for the microphone input, default (QT Robot's microphone) or external |
 | `MIC_DEVICE_INDEX` | Audio device index for the external microphone input, used by pyaudio (more instructions are given below for finding the device index) |
 | `AUDIO_RATE` | Audio sample rate |
-| `DEFAULT_LANGUAGE` | Default speech recognition language |
-| `SPEECH_MODEL` | Google Speech model |
-| `USE_ENHANCED_MODEL` | Whether to use enhanced Google STT model |
 | `SPEECH_SPEED` | QT Robot speech speed |
-| `DEFAULT_TIMEOUT` | STT stream timeout |
 | `LLM_TIMEOUT` | Backend response timeout |
 | `EMOTION_LISTENING` | Comma-separated list of QT listening emotions |
 

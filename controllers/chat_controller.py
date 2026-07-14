@@ -110,12 +110,6 @@ class ChatController:
         # Pause listening while we process
         self._stt.pause_listening()
 
-        # Show local STT transcript in UI (display only, backend does the real STT)
-        local_transcript = self._stt.get_and_clear_transcript()
-        if local_transcript:
-            self._bus.publish("user_message", local_transcript)
-
-        self._bus.publish("stt_final", "")  # Clear transcript display
         self._bus.publish("status", "Thinking...")
 
         threading.Thread(target=self._dispatch_audio, args=(audio_data,), daemon=True).start()
