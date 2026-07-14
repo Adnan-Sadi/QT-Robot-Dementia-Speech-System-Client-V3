@@ -72,21 +72,26 @@ class ChatController:
     # ------------------------------------------------------------------
     # Runtime settings
     # ------------------------------------------------------------------
-    def apply_settings(self, mic_device_index, mic_source, speech_speed: int, volume: int):
+    def apply_settings(self, mic_device_index, mic_source, speech_speed, volume: int):
         """
         Called from the Settings panel to apply runtime configuration.
+        Any argument can be None — only non-None values are applied.
         mic_device_index: int or None (None = system default)
-        mic_source: "default" (ReSpeaker ROS topic) or "external" (PyAudio)
-        speech_speed: int (e.g. 50–200)
-        volume: int (0–100)
+        mic_source: "default" (ReSpeaker ROS topic) or "external" (PyAudio), or None to skip
+        speech_speed: int (e.g. 50–200), or None to skip
+        volume: int (0–100), or None to skip
         """
-        # Update in-memory settings so the next session start picks them up
-        settings.MIC_SOURCE = mic_source
-        settings.MIC_DEVICE_INDEX = mic_device_index
+        # Only update mic settings if mic_source is explicitly provided
+        if mic_source is not None:
+            settings.MIC_SOURCE = mic_source
+            settings.MIC_DEVICE_INDEX = mic_device_index
 
         # Apply speech settings immediately (safe to call any time)
-        self._robot.configure_speech_speed(speech_speed)
-        self._robot.configure_volume(volume)
+        if speech_speed is not None:
+            self._robot.configure_speech_speed(speech_speed)
+
+        if volume is not None:
+            self._robot.configure_volume(volume)
 
     # ------------------------------------------------------------------
     # Turn-taking: user sends accumulated transcript

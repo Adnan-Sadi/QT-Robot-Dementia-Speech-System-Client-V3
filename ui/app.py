@@ -47,12 +47,15 @@ class MainWindow(ctk.CTk):
         content_frame.grid_rowconfigure(0, weight=1)
 
         # Settings panel (always visible, left side)
-        self._settings = SettingsPanel(content_frame, self._controller)
+        self._settings = SettingsPanel(content_frame, self._controller, main_window=self)
         self._settings.grid(row=0, column=0, sticky="ns", padx=(0, 8), pady=0)
 
         # Transcript panel (right side, expands to fill space)
         self._transcript = TranscriptPanel(content_frame)
         self._transcript.grid(row=0, column=1, sticky="nsew")
+
+        # self._transcript.append_assistant("Hello! I'm QT. How are you feeling today?")
+        # self._transcript.append_assistant("That's wonderful to hear! Would you like to talk about something?")
 
         # ── Input bar (transcript preview + Send button) ──
         input_frame = ctk.CTkFrame(self)
