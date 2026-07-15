@@ -9,6 +9,8 @@ it is corrected automatically.
 import json
 import os
 import pyaudio
+from typing import Optional
+
 
 # Stored at the project root — outside version control (see .gitignore)
 _SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "..", "user_settings.json")
@@ -82,7 +84,7 @@ def save_user_settings(settings_obj) -> None:
         print(f"[user_settings] Could not save user settings: {e}")
 
 
-def _resolve_mic_index_by_name(device_name: str, fallback_index) -> int | None:
+def _resolve_mic_index_by_name(device_name: str, fallback_index) -> Optional[int]:
     """
     Scan current PyAudio input devices and return the index of the device
     whose name contains device_name (case-insensitive substring match).

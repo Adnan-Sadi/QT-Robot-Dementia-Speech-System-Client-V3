@@ -2,13 +2,13 @@ import queue
 import threading
 import random
 # making rospy optional for testing without ROS
-try:
-    import rospy
-    from audio_common_msgs.msg import AudioData
-    from qt_robot_interface import srv
-    ROS_AVAILABLE = True
-except ImportError:
-    ROS_AVAILABLE = False
+#try:
+import rospy
+from audio_common_msgs.msg import AudioData
+from qt_robot_interface import srv
+ROS_AVAILABLE = True
+# except ImportError:
+#     ROS_AVAILABLE = False
 
 from services.event_bus import EventBus
 from config.settings import settings
