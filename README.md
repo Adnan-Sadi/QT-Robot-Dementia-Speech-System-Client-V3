@@ -187,10 +187,10 @@ These steps only need to be done once. After this, the application can be launch
 In a terminal on the robot:
 
 ```bash
-chmod +x /path/to/QT-Robot-Dementia-Speech-System-Client-V3/launch.sh
+chmod +x /home/qtrobot/catkin_ws/src/qt_dss_app/src/QT-Robot-Dementia-Speech-System-Client-V3/launch.sh
 ```
 
-Replace `/path/to/` with the actual path to the cloned repository (e.g. `/home/qtrobot/`).
+Replace `/path/to/` with the actual path to the cloned repository (e.g. `/home/qtrobot/catkin_ws/src/qt_dss_app/src/`). 
 
 ### Step 2: Create a desktop shortcut file
 
@@ -208,7 +208,7 @@ Version=1.0
 Type=Application
 Name=QT Speech System
 Comment=Launch the QT Robot Dementia Speech System Client
-Exec=/path/to/QT-Robot-Dementia-Speech-System-Client-V3/launch.sh
+Exec=/home/qtrobot/catkin_ws/src/qt_dss_app/src/QT-Robot-Dementia-Speech-System-Client-V3/launch.sh
 Icon=utilities-terminal
 Terminal=true
 Categories=Application;
