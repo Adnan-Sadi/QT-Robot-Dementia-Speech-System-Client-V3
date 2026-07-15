@@ -19,14 +19,18 @@ VENV_DIR="$SCRIPT_DIR/dss_venv"
 # Hash cache file — gitignored, lives in the project root
 HASH_CACHE="$SCRIPT_DIR/.requirements_hash"
 
-# ── Check the virtual environment exists ─────────────────
+# ── Always pause before closing so errors are visible ────────────
+# This fires on every exit (success, error, or crash) so the terminal
+# window stays open long enough to read any output.
+trap 'echo ""; read -p "[Launcher] Press Enter to close this window..." _' EXIT
+
+# ── Step 1: Check the virtual environment exists ─────────────────
 if [ ! -f "$VENV_DIR/bin/activate" ]; then
     echo "[Launcher] Virtual environment not found at $VENV_DIR"
     echo "[Launcher] Creating it now..."
     python3 -m venv "$VENV_DIR"
     if [ $? -ne 0 ]; then
         echo "[Launcher] ERROR: Failed to create virtual environment."
-        read -p "Press Enter to close..."
         exit 1
     fi
 fi
@@ -51,7 +55,6 @@ if [ "$CURRENT_HASH" != "$SAVED_HASH" ]; then
     pip install -r "$SCRIPT_DIR/requirements.txt"
     if [ $? -ne 0 ]; then
         echo "[Launcher] ERROR: Dependency installation failed."
-        read -p "Press Enter to close..."
         exit 1
     fi
     # Save the new hash so we don't reinstall next time
