@@ -6,7 +6,9 @@
 # It handles:
 #   1. Activating the Python virtual environment
 #   2. Installing/updating dependencies only when requirements.txt changes
-#   3. Launching the application
+#   3. Sourcing the ROS environment (needed for desktop launches, which
+#      do not load ~/.bashrc the same way interactive terminals do)
+#   4. Launching the application
 # ─────────────────────────────────────────────────────────────────
 
 # ── Configuration ────────────────────────────────────────────────
@@ -62,6 +64,16 @@ if [ "$CURRENT_HASH" != "$SAVED_HASH" ]; then
     echo "[Launcher] Dependencies installed successfully."
 else
     echo "[Launcher] Dependencies up to date. Skipping install."
+fi
+
+# ── Source ROS environment ──────────────────────────────
+# Desktop launchers do not load ~/.bashrc, so ROS must be sourced explicitly
+if [ -f "/opt/ros/noetic/setup.bash" ]; then
+    source "/opt/ros/noetic/setup.bash"
+    echo "[Launcher] ROS environment sourced."
+else
+    echo "[Launcher] WARNING: ROS setup file not found at /opt/ros/noetic/setup.bash"
+    echo "[Launcher]          The application may not work without ROS."
 fi
 
 # ── Launch the application ──────────────────────────────
