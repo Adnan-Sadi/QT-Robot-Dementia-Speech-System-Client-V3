@@ -21,6 +21,11 @@ VENV_DIR="$SCRIPT_DIR/dss_venv"
 # Hash cache file — gitignored, lives in the project root
 HASH_CACHE="$SCRIPT_DIR/.requirements_hash"
 
+# Display to render the UI on — needed when launching from a .desktop file,
+# which does not inherit the DISPLAY variable from the desktop session.
+# Run 'echo $DISPLAY' in a terminal on the robot to confirm this value.
+export DISPLAY=:0
+
 # ── Always pause before closing so errors are visible ────────────
 # This fires on every exit (success, error, or crash) so the terminal
 # window stays open long enough to read any output.
