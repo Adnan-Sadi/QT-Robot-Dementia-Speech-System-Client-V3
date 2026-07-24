@@ -60,9 +60,14 @@ class MainWindow(ctk.CTk):
         send_frame.grid(row=2, column=0, pady=(4, 8))
 
         self._send_btn = ctk.CTkButton(
-            send_frame, text="Send", width=200, height=50,
-            font=("", 18, "bold"),
-            command=self._on_send, state="disabled"
+            send_frame, text="Send", width=220, height=55,
+            font=("", 20, "bold"),
+            fg_color="#9333EA",             # Bright purple background
+            hover_color="#7E22CE",          # Slightly darker purple when hovered
+            text_color="#FFFFFF",           # Bright white font for contrast
+            text_color_disabled="#D8B4FE",  # Light purple font when the button is disabled
+            command=self._on_send, 
+            state="disabled"
         )
         self._send_btn.pack()
 

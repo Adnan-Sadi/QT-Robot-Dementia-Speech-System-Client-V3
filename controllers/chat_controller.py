@@ -95,9 +95,6 @@ class ChatController:
         if volume is not None:
             self._robot.configure_volume(volume)
 
-        # Persist the updated settings to disk
-        save_user_settings(settings)
-
     # ------------------------------------------------------------------
     # Turn-taking: user sends accumulated audio
     # ------------------------------------------------------------------
