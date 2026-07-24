@@ -27,6 +27,13 @@ HASH_CACHE="$SCRIPT_DIR/.requirements_hash"
 export DISPLAY=:0
 export XAUTHORITY=/run/user/1000/gdm/Xauthority
 
+# ── ROS network configuration ────────────────────────────
+# ROS_MASTER_URI must be set explicitly — sourcing setup.bash does not set it.
+# On QT Robot, roscore runs on the head PC at 192.168.100.1.
+# ROS_IP tells ROS which local network interface to advertise for callbacks.
+export ROS_MASTER_URI=http://192.168.100.1:11311
+export ROS_IP=192.168.100.2
+
 # ── Always pause before closing so errors are visible ────────────
 # This fires on every exit (success, error, or crash) so the terminal
 # window stays open long enough to read any output.
@@ -93,6 +100,22 @@ else
     echo "[Launcher] WARNING: Catkin workspace not found at /home/qtrobot/catkin_ws/devel/setup.bash"
     echo "[Launcher]          QT Robot ROS services will not be available."
 fi
+
+# ── Wait for ROS master to be available ─────────────────
+# roscore may still be starting up when this script runs (e.g. on boot).
+# We poll until the master is reachable before launching Python.
+echo "[Launcher] Waiting for ROS master at $ROS_MASTER_URI..."
+MASTER_WAIT_TIMEOUT=30
+MASTER_WAIT_COUNT=0
+until rostopic list > /dev/null 2>&1; do
+    sleep 1
+    MASTER_WAIT_COUNT=$((MASTER_WAIT_COUNT + 1))
+    if [ "$MASTER_WAIT_COUNT" -ge "$MASTER_WAIT_TIMEOUT" ]; then
+        echo "[Launcher] ERROR: ROS master not available after ${MASTER_WAIT_TIMEOUT}s. Is roscore running?"
+        exit 1
+    fi
+done
+echo "[Launcher] ROS master is ready."
 
 # ── Launch the application ──────────────────────────────
 echo "[Launcher] Starting QT Robot Speech System..."
