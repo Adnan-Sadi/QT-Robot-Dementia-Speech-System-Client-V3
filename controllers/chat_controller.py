@@ -131,8 +131,10 @@ class ChatController:
             for i in range(0, len(audio_data), CHUNK):
                 self._backend.send_audio_chunk(audio_data[i:i + CHUNK], sample_rate=16000)
 
-            # Tell the backend to now flush staged utterances and generate the LLM response
-            time.sleep(2.0) # adding a small delay for backend to flush, I need to improve this behavior
+            # Wait for backend to confirm STT transcript is staged (up to 20 seconds)
+            staged_ok = self._backend.wait_for_stt_staged(timeout=20.0)
+            if not staged_ok:
+                print("[ChatController] Timed out waiting for stt_staged signal — sending anyway.")
             self._backend.send_staged()
 
         except Exception as e:

@@ -283,4 +283,30 @@ Once the window opens:
 
 All settings (except microphone) are applied live without needing to click any button. Settings are saved automatically and restored on the next launch.
 
+## How the Backend Connection Works (For future reference)
+```text
+Robot WebSocket msg ("audio_data")
+  └─► receive_json()
+        └─► handle_audio_data()
+              ├─► stt_provider.send_audio()   [queues PCM bytes]
+              └─► recording buffers / _audio_chunks deque
+                    └─► _audio_generator()    [streams to Google STT in background thread]
+                          └─► _listen_responses()
+                                ├─► interim result → cancel _pending_response_task
+                                └─► final result   → stage_and_schedule()
+                                                        └─► reply_on_user_utt=False → STAGED, no auto-reply
+                                                              └─► source == "qtrobot"
+                                                                    └─► consumer.send({"type": "stt_staged"})
+                                                                          └─► received by BackendClient._listen_loop()
+                                                                                └─► _stt_staged_event.set()
+                                                                                      └─► unblocks wait_for_stt_staged()
+
+Robot sends "robot_send_staged"  ◄─── triggered after STT is staged                                
+  └─► reply_now()
+        ├─► flush_staged_utterances()  → commits user msg to DB
+        └─► respond_to_user()
+              ├─► consumer.response_method() → LLM call
+              └─► consumer.send({"type": "llm_response", ...})  ← sent back to robot
+```
+
 ---

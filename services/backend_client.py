@@ -31,6 +31,7 @@ class BackendClient:
         self.refresh: Optional[str] = None
         self.ws_url: Optional[str] = None
 
+        self._stt_staged_event = threading.Event()  # Event to signal that STT transcript has been staged
         self._on_llm_response = None  # Set externally via BackendBridge.set_response_callback()
 
     # ---------------------------
@@ -124,6 +125,9 @@ class BackendClient:
                         
                         if self._on_llm_response:
                             self._on_llm_response(text, emotion, current_scenario, next_scenario, close_session)
+
+                    elif mtype == "stt_staged":
+                        self._stt_staged_event.set() # turn on the event to signal that STT transcript has been staged
 
                 elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSE):
                     await self._reconnect_with_backoff()
@@ -242,3 +246,11 @@ class BackendBridge:
             raise RuntimeError("BackendBridge not started. Call start() first.")
         fut = asyncio.run_coroutine_threadsafe(self._client.send_trigger(), self._loop)
         fut.result()
+
+    def wait_for_stt_staged(self, timeout: float = 8.0) -> bool:
+        """
+        Block until the backend signals that the STT transcript has been staged.
+        Returns True if signal received, False if timed out.
+        """
+        self._client._stt_staged_event.clear()  # Reset before waiting
+        return self._client._stt_staged_event.wait(timeout=timeout)
