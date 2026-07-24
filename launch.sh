@@ -82,6 +82,18 @@ else
     echo "[Launcher]          The application may not work without ROS."
 fi
 
+# ── Source the catkin workspace overlay ─────────────────
+# This is required to make QT Robot packages (qt_robot_interface,
+# qt_gesture_controller, etc.) visible to Python/rospy.
+# Without this, rospy can find the ROS core but not the robot-specific services.
+if [ -f "/home/qtrobot/catkin_ws/devel/setup.bash" ]; then
+    source "/home/qtrobot/catkin_ws/devel/setup.bash"
+    echo "[Launcher] Catkin workspace overlay sourced."
+else
+    echo "[Launcher] WARNING: Catkin workspace not found at /home/qtrobot/catkin_ws/devel/setup.bash"
+    echo "[Launcher]          QT Robot ROS services will not be available."
+fi
+
 # ── Launch the application ──────────────────────────────
 echo "[Launcher] Starting QT Robot Speech System..."
 cd "$SCRIPT_DIR"
