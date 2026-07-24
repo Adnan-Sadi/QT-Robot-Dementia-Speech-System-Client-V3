@@ -2,7 +2,6 @@ import customtkinter as ctk
 from ui.widgets.transcript_panel import TranscriptPanel
 from ui.widgets.status_bar import StatusBar
 from ui.widgets.settings_panel import SettingsPanel
-from config.user_settings import save_user_settings
 from config.settings import settings
 
 
@@ -18,7 +17,7 @@ class MainWindow(ctk.CTk):
         self._controller = controller
         self._bus = bus
 
-        # ── Top-level grid: header row, main content row, status bar row ──
+        # ── Top-level grid: header row, main content row, send button row, status bar row ──
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
@@ -56,31 +55,16 @@ class MainWindow(ctk.CTk):
         self._transcript = TranscriptPanel(content_frame)
         self._transcript.grid(row=0, column=1, sticky="nsew")
 
-        # Dummy text for layout testing
-        #self._transcript.append_assistant("Hello! I'm QT. How are you feeling today?")
-        #self._transcript.append_assistant("That's wonderful to hear! Would you like to talk about something?")
-
-        # ── Input bar (transcript preview + Send button) ──
-        input_frame = ctk.CTkFrame(self)
-        input_frame.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 4))
-        input_frame.grid_columnconfigure(0, weight=1)
-
-        self._transcript_preview = ctk.CTkLabel(
-            input_frame,
-            text="(Start chat and speak — your words will appear here)",
-            anchor="w",
-            wraplength=600,
-            text_color="gray",
-            font=("", 13),
-        )
-        self._transcript_preview.grid(row=0, column=0, sticky="ew", padx=12, pady=8)
+        # ── Send button (centred, large) ──
+        send_frame = ctk.CTkFrame(self, fg_color="transparent")
+        send_frame.grid(row=2, column=0, pady=(4, 8))
 
         self._send_btn = ctk.CTkButton(
-            input_frame, text="Send", width=120,
-            font=("", 14, "bold"),
+            send_frame, text="Send", width=200, height=50,
+            font=("", 18, "bold"),
             command=self._on_send, state="disabled"
         )
-        self._send_btn.grid(row=0, column=1, padx=8, pady=8)
+        self._send_btn.pack()
 
         # ── Status bar ──
         self._status = StatusBar(self)
@@ -106,7 +90,6 @@ class MainWindow(ctk.CTk):
         self._start_btn.configure(state="normal")
         self._stop_btn.configure(state="disabled")
         self._send_btn.configure(state="disabled")
-        self._transcript_preview.configure(text="(Session ended)", text_color="gray")
         self._controller.stop_session()
 
     def _on_send(self):
@@ -116,9 +99,8 @@ class MainWindow(ctk.CTk):
     def set_transcript_font_size(self, size: int):
         """Called by SettingsPanel when the font size slider is moved."""
         self._transcript.set_font_size(size)
-        # Font size is not routed through apply_settings, so save directly here
+        # Only update the in-memory value here; saving is deferred to window close / Apply
         settings.TRANSCRIPT_FONT_SIZE = size
-        save_user_settings(settings)
 
     def _on_window_close(self):
         """Called when the user closes the window. Saves settings before exiting."""
@@ -147,24 +129,10 @@ class MainWindow(ctk.CTk):
         while ev:
             kind = ev.kind
 
-            if kind == "stt_interim":
-                # Show live interim transcript in italic/gray
-                self._transcript_preview.configure(text=ev.text, text_color="gray")
-
-            elif kind == "stt_final":
+            if kind == "stt_final":
                 if ev.text:
-                    # Show accumulated final text — ready to send
-                    self._transcript_preview.configure(text=ev.text, text_color="white")
+                    # Audio captured and ready to send
                     self._send_btn.configure(state="normal")
-                else:
-                    self._transcript_preview.configure(
-                        text="(Listening...)", text_color="gray"
-                    )
-
-            elif kind == "user_message":
-                # User message is no longer shown in the transcript panel;
-                # only the transcript preview bar (input bar) is used for user speech display.
-                self._transcript_preview.configure(text="(Waiting for response...)", text_color="gray")
 
             elif kind == "llm_response":
                 # Only show what the robot said — no user text, no scenario label

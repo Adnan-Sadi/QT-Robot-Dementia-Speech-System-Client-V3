@@ -2,7 +2,7 @@ import customtkinter as ctk
 
 
 class TranscriptPanel(ctk.CTkFrame):
-    """Scrollable chat transcript showing only robot (assistant) responses."""
+    """Scrollable chat transcript showing only the most recent robot (assistant) response."""
 
     def __init__(self, master):
         super().__init__(master)
@@ -14,10 +14,11 @@ class TranscriptPanel(ctk.CTkFrame):
         self._textbox.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
 
     def append_assistant(self, text):
-        self._append(f"QT:  {text}\n\n")
+        # Replace the entire content with only the latest response
+        self._set(f"QT:  {text}\n\n")
 
     def append_system(self, text):
-        self._append(f"   ── {text} ──\n\n")
+        self._set(f"   ── {text} ──\n\n")
 
     def clear(self):
         self._textbox.configure(state="normal")
@@ -29,8 +30,10 @@ class TranscriptPanel(ctk.CTkFrame):
         self._font_size = size
         self._textbox.configure(font=("", self._font_size))
 
-    def _append(self, text):
+    def _set(self, text):
+        """Replace all content with the given text (shows only the most recent response)."""
         self._textbox.configure(state="normal")
+        self._textbox.delete("1.0", "end")
         self._textbox.insert("end", text)
         self._textbox.see("end")
         self._textbox.configure(state="disabled")

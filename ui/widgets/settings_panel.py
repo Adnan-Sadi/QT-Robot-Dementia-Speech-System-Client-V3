@@ -11,6 +11,7 @@ class SettingsPanel(ctk.CTkFrame):
     Allows adjusting microphone, speech speed, volume, and text size.
     Speed, volume, and font size changes are applied live (no Apply button needed).
     Microphone changes require pressing 'Apply Microphone' to take effect.
+    Settings are persisted to disk on window close (not on every slider move).
     """
 
     # Label shown in the dropdown for the robot's built-in ReSpeaker mic
@@ -68,19 +69,19 @@ class SettingsPanel(ctk.CTkFrame):
             row=5, column=0, sticky="w", padx=16, pady=(8, 2)
         )
 
-        # Speed slider (live)
+        # Speed slider (live) — max capped at 120
         ctk.CTkLabel(self, text="Speed:").grid(row=6, column=0, sticky="w", padx=16, pady=2)
         self._speed_var = ctk.IntVar(value=settings.SPEECH_SPEED)
         self._make_slider_row(
             parent_row=7,
             var=self._speed_var,
-            from_=50, to=200,
-            number_of_steps=150,
+            from_=50, to=120,
+            number_of_steps=70,
             step=10,
             on_change=self._on_speed_change,
         )
 
-        # Volume slider (live)
+        # Volume slider (live) — QT robot hardware caps at 100
         ctk.CTkLabel(self, text="Volume:").grid(row=8, column=0, sticky="w", padx=16, pady=2)
         self._vol_var = ctk.IntVar(value=getattr(settings, 'SPEECH_VOLUME', 80))
         self._make_slider_row(
@@ -101,8 +102,8 @@ class SettingsPanel(ctk.CTkFrame):
         self._make_slider_row(
             parent_row=12,
             var=self._font_size_var,
-            from_=10, to=28,
-            number_of_steps=18,
+            from_=10, to=50,
+            number_of_steps=40,
             step=2,
             on_change=self._on_font_size_change,
         )
@@ -159,7 +160,7 @@ class SettingsPanel(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def _on_speed_change(self, value):
-        """Apply speech speed immediately as the slider moves."""
+        """Apply speech speed immediately as the slider moves. Does not save to disk."""
         speed = int(value)
         self._speed_var._label.configure(text=str(speed))
         settings.SPEECH_SPEED = speed
@@ -171,7 +172,7 @@ class SettingsPanel(ctk.CTkFrame):
         )
 
     def _on_volume_change(self, value):
-        """Apply volume immediately as the slider moves."""
+        """Apply volume immediately as the slider moves. Does not save to disk."""
         volume = int(value)
         self._vol_var._label.configure(text=str(volume))
         settings.SPEECH_VOLUME = volume
@@ -183,7 +184,7 @@ class SettingsPanel(ctk.CTkFrame):
         )
 
     def _on_font_size_change(self, value):
-        """Apply font size immediately as the slider moves."""
+        """Apply font size immediately as the slider moves. Does not save to disk."""
         size = int(value)
         self._font_size_var._label.configure(text=str(size))
         settings.TRANSCRIPT_FONT_SIZE = size
@@ -241,8 +242,8 @@ class SettingsPanel(ctk.CTkFrame):
             return self._ROS_MIC_LABEL
         # Try to match by device index
         current_index = settings.MIC_DEVICE_INDEX
+        current_index = int(current_index) if current_index is not None else None
         if current_index is not None:
-            current_index = int(current_index)
             for d in self._devices:
                 if d['index'] == current_index:
                     return f"[{d['index']}] {d['name']} ({d['sample_rate']} Hz)"

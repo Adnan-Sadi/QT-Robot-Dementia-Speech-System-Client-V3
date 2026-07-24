@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any
 
 @dataclass
 class Event:
-    kind: str          # "stt_interim", "stt_final", "llm_response", "status", "error"
+    kind: str          #  "stt_final", "llm_response", "status", "error"
     text: str = ""
     data: Dict[str, Any] = field(default_factory=dict)  # for future extensibility (emotions, movements, etc.)
 
