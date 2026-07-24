@@ -247,10 +247,14 @@ class BackendBridge:
         fut = asyncio.run_coroutine_threadsafe(self._client.send_trigger(), self._loop)
         fut.result()
 
+        
+    def reset_stt_staged_event(self):
+        """Call before sending audio to ensure no stale stt_staged signal is carried over."""
+        self._client._stt_staged_event.clear()
+    
     def wait_for_stt_staged(self, timeout: float = 8.0) -> bool:
         """
         Block until the backend signals that the STT transcript has been staged.
         Returns True if signal received, False if timed out.
         """
-        self._client._stt_staged_event.clear()  # Reset before waiting
         return self._client._stt_staged_event.wait(timeout=timeout)

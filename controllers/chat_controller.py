@@ -126,6 +126,8 @@ class ChatController:
     def _dispatch_audio(self, audio_data: bytes):
         """Background: send accumulated audio to backend, then trigger LLM response."""
         try:
+            self._backend.reset_stt_staged_event()  # Reset BEFORE sending audio
+
             # Send audio in chunks (backend STT accumulates them)
             CHUNK = 4096
             for i in range(0, len(audio_data), CHUNK):
