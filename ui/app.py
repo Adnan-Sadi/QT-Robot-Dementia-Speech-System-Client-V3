@@ -8,7 +8,7 @@ from config.settings import settings
 class MainWindow(ctk.CTk):
     def __init__(self, controller, bus):
         super().__init__()
-        self.title("QT Robot Agentic Speech System Client")
+        self.title("QT Robot Speech System Client")
         self.geometry("1024x768")
         self.minsize(700, 450)
         ctk.set_appearance_mode("dark")
@@ -26,14 +26,15 @@ class MainWindow(ctk.CTk):
         toolbar.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 0))
 
         self._start_btn = ctk.CTkButton(
-            toolbar, text="▶  Start Chat", width=140,
+            toolbar, text="▶  Start Chat", width=200, height=50, font=("", 18, "bold"),
             fg_color="#2B7A0B", hover_color="#1E5C08",
             command=self._on_start
         )
+        # place in center
         self._start_btn.pack(side="left", padx=6, pady=8)
 
         self._stop_btn = ctk.CTkButton(
-            toolbar, text="■  Stop Chat", width=140,
+            toolbar, text="■  Stop Chat", width=200, height=50, font=("", 18, "bold"),
             fg_color="#B91C1C", hover_color="#7F1D1D",
             command=self._on_stop, state="disabled"
         )

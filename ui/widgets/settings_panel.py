@@ -38,39 +38,40 @@ class SettingsPanel(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
 
         # Panel title
-        ctk.CTkLabel(self, text="⚙  Settings", font=("", 14, "bold")).grid(
+        ctk.CTkLabel(self, text="⚙  Settings", font=("", 25, "bold")).grid(
             row=0, column=0, sticky="w", padx=16, pady=(16, 8)
         )
 
         # ── Section: Microphone ──
-        ctk.CTkLabel(self, text="Microphone", font=("", 12, "bold")).grid(
+        ctk.CTkLabel(self, text="Microphone", font=("", 20, "bold")).grid(
             row=1, column=0, sticky="w", padx=16, pady=(8, 2)
         )
-        ctk.CTkLabel(self, text="Input device:").grid(
+        ctk.CTkLabel(self, text="Input device (click apply after selection):", font=("", 18)).grid(
             row=2, column=0, sticky="w", padx=16, pady=2
         )
         self._mic_var = ctk.StringVar(value=current_label)
+
+        # Mic dropdown and Apply button on the same row
+        mic_row_frame = ctk.CTkFrame(self, fg_color="transparent")
+        mic_row_frame.grid(row=3, column=0, sticky="ew", padx=16, pady=(0, 12))
+        mic_row_frame.grid_columnconfigure(0, weight=1)  # dropdown expands
+
         self._mic_dropdown = ctk.CTkOptionMenu(
-            self,
+            mic_row_frame,
             values=self._dropdown_values,
             variable=self._mic_var,
-            width=220,
+            dynamic_resizing=False,  # prevents the dropdown from resizing to fit full name
         )
-        self._mic_dropdown.grid(row=3, column=0, sticky="ew", padx=16, pady=(0, 4))
+        self._mic_dropdown.grid(row=0, column=0, sticky="ew", padx=(0, 6))
 
         # Apply button only for microphone (changing mic requires stream restart)
         ctk.CTkButton(
-            self, text="Apply Microphone", width=180,
+            mic_row_frame, text="Apply", width=100, font=("", 14, "bold"),
             command=self._on_apply_mic
-        ).grid(row=4, column=0, padx=16, pady=(4, 12), sticky="w")
-
-        # ── Section: Robot Speech ──
-        ctk.CTkLabel(self, text="Robot Speech", font=("", 12, "bold")).grid(
-            row=5, column=0, sticky="w", padx=16, pady=(8, 2)
-        )
+        ).grid(row=0, column=1)
 
         # Speed slider (live) — max capped at 120
-        ctk.CTkLabel(self, text="Speed:").grid(row=6, column=0, sticky="w", padx=16, pady=2)
+        ctk.CTkLabel(self, text="Speed:", font=("", 18)).grid(row=6, column=0, sticky="w", padx=16, pady=2)
         self._speed_var = ctk.IntVar(value=settings.SPEECH_SPEED)
         self._make_slider_row(
             parent_row=7,
@@ -82,7 +83,7 @@ class SettingsPanel(ctk.CTkFrame):
         )
 
         # Volume slider (live) — QT robot hardware caps at 100
-        ctk.CTkLabel(self, text="Volume:").grid(row=8, column=0, sticky="w", padx=16, pady=2)
+        ctk.CTkLabel(self, text="Volume:", font=("", 18)).grid(row=8, column=0, sticky="w", padx=16, pady=2)
         self._vol_var = ctk.IntVar(value=getattr(settings, 'SPEECH_VOLUME', 80))
         self._make_slider_row(
             parent_row=9,
@@ -94,10 +95,9 @@ class SettingsPanel(ctk.CTkFrame):
         )
 
         # ── Section: Text Size ──
-        ctk.CTkLabel(self, text="Text Size", font=("", 12, "bold")).grid(
+        ctk.CTkLabel(self, text="Text Size", font=("", 18)).grid(
             row=10, column=0, sticky="w", padx=16, pady=(8, 2)
         )
-        ctk.CTkLabel(self, text="Font size:").grid(row=11, column=0, sticky="w", padx=16, pady=2)
         self._font_size_var = ctk.IntVar(value=getattr(settings, 'TRANSCRIPT_FONT_SIZE', 13))
         self._make_slider_row(
             parent_row=12,
@@ -124,7 +124,7 @@ class SettingsPanel(ctk.CTkFrame):
 
         # − button
         ctk.CTkButton(
-            frame, text="−", width=28, height=28,
+            frame, text="−", width=40, height=40, font=("", 18),
             command=lambda: self._step_slider(var, -step, from_, to, on_change)
         ).grid(row=0, column=0, padx=(0, 4))
 
@@ -137,12 +137,12 @@ class SettingsPanel(ctk.CTkFrame):
         slider.grid(row=0, column=1, sticky="ew")
 
         # Value label
-        label = ctk.CTkLabel(frame, text=str(var.get()), width=36)
+        label = ctk.CTkLabel(frame, text=str(var.get()), font=("", 14, "bold"), width=36)
         label.grid(row=0, column=2, padx=(6, 4))
 
         # + button
         ctk.CTkButton(
-            frame, text="+", width=28, height=28,
+            frame, text="+", width=40, height=40, font=("", 18),
             command=lambda: self._step_slider(var, +step, from_, to, on_change)
         ).grid(row=0, column=3, padx=(4, 0))
 

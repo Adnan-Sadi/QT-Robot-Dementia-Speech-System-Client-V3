@@ -1,4 +1,5 @@
 import customtkinter as ctk
+from config.settings import settings 
 
 
 class TranscriptPanel(ctk.CTkFrame):
@@ -9,7 +10,7 @@ class TranscriptPanel(ctk.CTkFrame):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
-        self._font_size = 13
+        self._font_size = getattr(settings, 'TRANSCRIPT_FONT_SIZE', 13)
         self._textbox = ctk.CTkTextbox(self, wrap="word", state="disabled", font=("", self._font_size))
         self._textbox.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
 

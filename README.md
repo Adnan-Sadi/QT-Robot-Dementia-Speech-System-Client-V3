@@ -1,6 +1,6 @@
 # QT Robot Dementia Speech System Client
 
-This repository contains the **QT Robot client application** for the **Dementia Speech System** backend. This is a modified version of the [QT Robot Agentic Speech System Client](https://github.com/Adnan-Sadi/QT-Robot-Agentic-Speech-System-Client).
+This repository contains the **QT Robot client application** for the **Dementia Speech System** backend. This is a modified version of the [QT Robot Speech System Client](https://github.com/Adnan-Sadi/QT-Robot-Agentic-Speech-System-Client).
 
 It provides a desktop UI for the QT robot operator and connects the robot to a cloud-based LLM conversational backend. The application uses:
 
