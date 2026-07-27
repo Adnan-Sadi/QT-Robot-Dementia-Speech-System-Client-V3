@@ -31,6 +31,7 @@ class BackendClient:
         self.refresh: Optional[str] = None
         self.ws_url: Optional[str] = None
 
+        self._stt_staged_event = threading.Event()  # Event to signal that STT transcript has been staged
         self._on_llm_response = None  # Set externally via BackendBridge.set_response_callback()
 
     # ---------------------------
@@ -112,16 +113,21 @@ class BackendClient:
                             text = payload
                             current_scenario = None
                             next_scenario = None
+                            close_session = False
                         elif isinstance(payload, dict):
                             text = payload.get("text", "")
                             current_scenario = payload.get("current_scenario")
                             next_scenario = payload.get("next_scenario")
+                            close_session = bool(payload.get("close_session", False))
                         else:
                             # Skip if payload is neither string nor dict
                             continue
                         
                         if self._on_llm_response:
-                            self._on_llm_response(text, emotion, current_scenario, next_scenario)
+                            self._on_llm_response(text, emotion, current_scenario, next_scenario, close_session)
+
+                    elif mtype == "stt_staged":
+                        self._stt_staged_event.set() # turn on the event to signal that STT transcript has been staged
 
                 elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSE):
                     await self._reconnect_with_backoff()
@@ -168,17 +174,33 @@ class BackendBridge:
     """
 
     def __init__(self):
-        # currently hardcoded, should move to an env or config file
         base = settings.BASE_HTTP_URL
         ws_path = settings.WS_PATH
         source = settings.SOURCE
         if not base:
             raise RuntimeError("BASE must be set in .env or environment")
+        self._base = base
+        self._ws_path = ws_path
+        self._source = source
         self._client = BackendClient(base, ws_path, source)
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._started = threading.Event()
         self._stopping = threading.Event()
+
+    def _reset(self):
+        """
+        Rebuild the client, event loop, and thread so start() can be called again.
+        Must only be called after stop() has fully completed.
+        """
+        # Preserve the response callback across resets
+        old_callback = self._client._on_llm_response
+        self._client = BackendClient(self._base, self._ws_path, self._source)
+        self._client._on_llm_response = old_callback
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
+        self._started.clear()
+        self._stopping.clear()
 
     def start(self):
         self._thread.start()
@@ -196,11 +218,15 @@ class BackendBridge:
         except Exception:
             pass
         self._loop.call_soon_threadsafe(self._loop.stop)
+        # Wait for the event loop thread to fully exit before resetting,
+        # so the next start() gets a clean slate.
+        self._thread.join(timeout=5)
+        self._reset()
 
     def set_response_callback(self, callback):
         """
         Register a callable invoked when the backend sends an llm_response.
-        Signature: callback(text: str, emotion: str, current_scenario: str, next_scenario: str)
+        Signature: callback(text, emotion, current_scenario, next_scenario, close_session)
         """
         self._client._on_llm_response = callback
 
@@ -220,3 +246,15 @@ class BackendBridge:
             raise RuntimeError("BackendBridge not started. Call start() first.")
         fut = asyncio.run_coroutine_threadsafe(self._client.send_trigger(), self._loop)
         fut.result()
+
+        
+    def reset_stt_staged_event(self):
+        """Call before sending audio to ensure no stale stt_staged signal is carried over."""
+        self._client._stt_staged_event.clear()
+    
+    def wait_for_stt_staged(self, timeout: float = 8.0) -> bool:
+        """
+        Block until the backend signals that the STT transcript has been staged.
+        Returns True if signal received, False if timed out.
+        """
+        return self._client._stt_staged_event.wait(timeout=timeout)

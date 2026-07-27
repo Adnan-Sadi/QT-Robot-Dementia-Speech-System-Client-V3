@@ -58,3 +58,7 @@ test_*
 
 # vscode settings
 .vscode/
+
+# user setting file
+user_settings.json
+.requirements_hash

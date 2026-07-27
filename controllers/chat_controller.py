@@ -7,15 +7,16 @@ from services.backend_client import BackendBridge
 from services.stt_accumulator import STTAccumulator
 from services.robot_actions import RobotActions
 from config.settings import settings
+from config.user_settings import save_user_settings
 
 
 class ChatController:
     """
     Orchestrates the turn-taking flow:
-      - Robot starts listening (STT accumulates transcript and audio)
+      - Robot starts listening (STT accumulates audio)
       - User clicks "Send" -> accumulated audio sent to backend
       - Robot speaks the response (STT paused)
-      - Robot finishes speaking -> back to step 1
+      - Robot finishes speaking -> back to step 1 (unless close_session is True)
     """
 
     def __init__(self, bus: EventBus, robot: RobotActions, stt: STTAccumulator, backend: BackendBridge):
@@ -63,40 +64,45 @@ class ChatController:
         threading.Thread(target=_start, daemon=True).start()
 
     def stop_session(self):
-        """Called when user clicks Stop Chat."""
+        """Called when user clicks Stop Chat (or triggered automatically on close_session)."""
         self._session_active = False
         self._stt.stop_listening()
-        self._backend.stop()
+        self._stt._clear_audio_buffer()  # Discard any stale audio so next session starts clean
+        self._backend.stop()             # stop() now resets the backend for a future start()
         self._bus.publish("status", "Session ended.")
-    
+
     # ------------------------------------------------------------------
     # Runtime settings
     # ------------------------------------------------------------------
-    def apply_settings(self, mic_device_index, mic_source, speech_speed: int, volume: int):
+    def apply_settings(self, mic_device_index, mic_source, speech_speed, volume):
         """
         Called from the Settings panel to apply runtime configuration.
+        Any argument can be None — only non-None values are applied.
         mic_device_index: int or None (None = system default)
-        mic_source: "default" (ReSpeaker ROS topic) or "external" (PyAudio)
-        speech_speed: int (e.g. 50–200)
-        volume: int (0–100)
+        mic_source: "default" (ReSpeaker ROS topic) or "external" (PyAudio), or None to skip
+        speech_speed: int (e.g. 50–200), or None to skip
+        volume: int (0–100), or None to skip
         """
-        # Update in-memory settings so the next session start picks them up
-        settings.MIC_SOURCE = mic_source
-        settings.MIC_DEVICE_INDEX = mic_device_index
+        # Only update mic settings if mic_source is explicitly provided
+        if mic_source is not None:
+            settings.MIC_SOURCE = mic_source
+            settings.MIC_DEVICE_INDEX = mic_device_index
 
         # Apply speech settings immediately (safe to call any time)
-        self._robot.configure_speech_speed(speech_speed)
-        self._robot.configure_volume(volume)
+        if speech_speed is not None:
+            self._robot.configure_speech_speed(speech_speed)
+
+        if volume is not None:
+            self._robot.configure_volume(volume)
 
     # ------------------------------------------------------------------
-    # Turn-taking: user sends accumulated transcript
+    # Turn-taking: user sends accumulated audio
     # ------------------------------------------------------------------
 
     def send_message(self):
         """
         Called when user clicks Send.
-        Sends accumulated audio to backend, backend STT generates transcript and LLM response.
-        Local STT transcript is used only for UI display.
+        Sends accumulated audio to backend; backend STT generates transcript and LLM response.
         """
         if not self._session_active:
             self._bus.publish("error", "No active session.")
@@ -110,12 +116,6 @@ class ChatController:
         # Pause listening while we process
         self._stt.pause_listening()
 
-        # Show local STT transcript in UI (display only, backend does the real STT)
-        local_transcript = self._stt.get_and_clear_transcript()
-        if local_transcript:
-            self._bus.publish("user_message", local_transcript)
-
-        self._bus.publish("stt_final", "")  # Clear transcript display
         self._bus.publish("status", "Thinking...")
 
         threading.Thread(target=self._dispatch_audio, args=(audio_data,), daemon=True).start()
@@ -123,13 +123,17 @@ class ChatController:
     def _dispatch_audio(self, audio_data: bytes):
         """Background: send accumulated audio to backend, then trigger LLM response."""
         try:
+            self._backend.reset_stt_staged_event()  # Reset BEFORE sending audio
+
             # Send audio in chunks (backend STT accumulates them)
             CHUNK = 4096
             for i in range(0, len(audio_data), CHUNK):
                 self._backend.send_audio_chunk(audio_data[i:i + CHUNK], sample_rate=16000)
 
-            # Tell the backend to now flush staged utterances and generate the LLM response
-            time.sleep(2.0) # adding a small delay for backend to flush, I need to improve this behavior
+            # Wait for backend to confirm STT transcript is staged (up to 20 seconds)
+            staged_ok = self._backend.wait_for_stt_staged(timeout=20.0)
+            if not staged_ok:
+                print("[ChatController] Timed out waiting for stt_staged signal — sending anyway.")
             self._backend.send_staged()
 
         except Exception as e:
@@ -138,22 +142,22 @@ class ChatController:
             if self._session_active:
                 self._stt.resume_listening()
 
-    def _on_llm_response_received(self, text, emotion, current_scenario, next_scenario):
+    def _on_llm_response_received(self, text, emotion, current_scenario, next_scenario, close_session=False):
         """
         Called from the asyncio loop thread when the backend sends an llm_response.
         Dispatches robot speech to a background thread.
         """
-        print(f"[ChatController] llm_response received: text='{text[:50]}', emotion={emotion}, scenario={current_scenario}")
+        print(f"[ChatController] llm_response received: text='{text[:50]}', emotion={emotion}, scenario={current_scenario}, close_session={close_session}")
         if not self._session_active:
             return
         threading.Thread(
             target=self._process_response,
-            args=(text, emotion, current_scenario, next_scenario),
+            args=(text, emotion, current_scenario, next_scenario, close_session),
             daemon=True
         ).start()
 
-    def _process_response(self, response_text, response_emotion, current_scenario, next_scenario):
-        """Background: publish response to UI, speak it, then resume listening."""
+    def _process_response(self, response_text, response_emotion, current_scenario, next_scenario, close_session):
+        """Background: publish response to UI, speak it, then resume listening or close."""
         try:
             self._bus.publish(
                 "llm_response",
@@ -164,6 +168,8 @@ class ChatController:
             )
             self._bus.publish("status", "Speaking...")
             emotion = response_emotion.lower() if response_emotion else "neutral"
+
+            # This blocks until the robot finishes speaking — close_session check comes after
             self._robot.say(response_text, emotion)
 
         except Exception as e:
@@ -171,5 +177,9 @@ class ChatController:
             traceback.print_exc()
 
         finally:
-            if self._session_active:
+            if close_session:
+                # Robot has finished speaking — now trigger the shutdown sequence
+                self.stop_session()
+                self._bus.publish("close_session", "")
+            elif self._session_active:
                 self._stt.resume_listening()

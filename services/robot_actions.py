@@ -2,7 +2,7 @@ import sys
 import time
 import threading
 import random
-# try:
+#try:
 import rospy
 from qt_robot_interface.srv import (
     speech_say, speech_config, speech_configRequest, setting_setVolume, setting_setVolumeRequest,
@@ -82,7 +82,6 @@ class RobotActions:
         try:
             req = speech_configRequest(language='en-US', speed=speed, pitch=0)
             self._speech_config_service(req)
-            rospy.loginfo(f"Speech speed set to {speed}.")
         except rospy.ServiceException as e:
             rospy.logerr(f"Speech config failed: {e}")
 
@@ -93,7 +92,6 @@ class RobotActions:
         try:
             req = setting_setVolumeRequest(volume=volume)
             self._set_volume_service(req)
-            rospy.loginfo(f"Volume set to {volume}.")
         except rospy.ServiceException as e:
             rospy.logerr(f"Set volume failed: {e}")
 
