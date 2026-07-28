@@ -100,37 +100,32 @@ class ChatController:
     # ------------------------------------------------------------------
 
     def send_message(self):
-        """
-        Called when user clicks Send.
-        Sends accumulated audio to backend; backend STT generates transcript and LLM response.
-        """
+        """Called when user clicks Send."""
         if not self._session_active:
             self._bus.publish("error", "No active session.")
             return
 
-        audio_data = self._stt.get_and_clear_audio_buffer()
-        if not audio_data:
+        # Check that there's something in the buffer (user did speak)
+        if not self._stt.has_audio():
             self._bus.publish("error", "Nothing to send. Please speak first.")
             return
 
-        # Pause listening while we process
+        # Pause listening (stop accumulating + stop live streaming)
         self._stt.pause_listening()
 
         self._bus.publish("status", "Thinking...")
+        threading.Thread(target=self._dispatch_audio, daemon=True).start()
 
-        threading.Thread(target=self._dispatch_audio, args=(audio_data,), daemon=True).start()
-
-    def _dispatch_audio(self, audio_data: bytes):
-        """Background: send accumulated audio to backend, then trigger LLM response."""
+    def _dispatch_audio(self, audio_data=None):  # audio_data no longer needed
+        """Background: signal backend that audio is done, wait for STT, then trigger LLM."""
         try:
-            self._backend.reset_stt_staged_event()  # Reset BEFORE sending audio
+            # Reset event before signalling done (in case a stale stt_staged exists)
+            self._backend.reset_stt_staged_event()
 
-            # Send audio in chunks (backend STT accumulates them)
-            CHUNK = 4096
-            for i in range(0, len(audio_data), CHUNK):
-                self._backend.send_audio_chunk(audio_data[i:i + CHUNK], sample_rate=16000)
+            # Audio was already streamed live — just tell backend recording is complete
+            self._backend.send_audio_done()
 
-            # Wait for backend to confirm STT transcript is staged (up to 20 seconds)
+            # Wait for backend to confirm all STT results are staged
             staged_ok = self._backend.wait_for_stt_staged(timeout=20.0)
             if not staged_ok:
                 print("[ChatController] Timed out waiting for stt_staged signal — sending anyway.")

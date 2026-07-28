@@ -96,22 +96,33 @@ class STTAccumulator:
         self._pa_stream.start_stream()
 
     def _pa_callback(self, in_data, frame_count, time_info, status):
-        """PyAudio callback — accumulates audio from the external mic."""
+        """PyAudio callback — accumulate and stream live to backend."""
         import pyaudio
         if self._listening:
-            # Accumulate for backend sending on Send click
             with self._lock:
                 self._audio_buffer.extend(in_data)
+            # Stream live to backend for real-time STT
+            if self._backend is not None:
+                resampled = self._resample_chunk_to_16k(in_data)
+                self._backend.send_audio_chunk(resampled, sample_rate=16000)
         return (None, pyaudio.paContinue)
 
     def _on_audio(self, msg):
-        """ROS audio callback — only accumulate data when listening."""
+        """ROS audio callback — accumulate and stream live to backend."""
         if self._listening:
             chunk = bytes(msg.data)
-            # Accumulate for backend sending on Send click
             with self._lock:
                 self._audio_buffer.extend(chunk)
+            # Stream live to backend for real-time STT
+            if self._backend is not None:
+                resampled = self._resample_chunk_to_16k(chunk)
+                self._backend.send_audio_chunk(resampled, sample_rate=16000)
 
+    def has_audio(self) -> bool:
+        """Returns True if any audio has been accumulated this turn."""
+        with self._lock:
+            return len(self._audio_buffer) > 0
+    
     # ------------------------------------------------------------------
     # Listening control
     # ------------------------------------------------------------------
@@ -182,6 +193,15 @@ class STTAccumulator:
         audio_resampled = librosa.resample(audio, orig_sr=self._audio_rate, target_sr=16000)
 
         # Clip to prevent any overflow, then convert back to int16
+        audio_resampled = np.clip(audio_resampled, -1.0, 1.0)
+        return (audio_resampled * 32767).astype(np.int16).tobytes()
+    
+    def _resample_chunk_to_16k(self, chunk: bytes) -> bytes:
+        """Resample a single raw PCM chunk to 16000 Hz if needed."""
+        if self._audio_rate == 16000:
+            return chunk
+        audio = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
+        audio_resampled = librosa.resample(audio, orig_sr=self._audio_rate, target_sr=16000)
         audio_resampled = np.clip(audio_resampled, -1.0, 1.0)
         return (audio_resampled * 32767).astype(np.int16).tobytes()
 
