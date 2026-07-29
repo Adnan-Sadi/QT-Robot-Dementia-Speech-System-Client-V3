@@ -15,6 +15,7 @@ from config.settings import settings
 
 import numpy as np
 import librosa
+import soxr
 
 
 class STTAccumulator:
@@ -49,6 +50,20 @@ class STTAccumulator:
                 self._emotion_service = rospy.ServiceProxy('/qt_robot/emotion/show', srv.emotion_show)
             except Exception:
                 self._emotion_service = None
+        
+        self._resampler = None
+        if self._audio_rate != 16000:
+            self._init_resampler()
+
+    def _init_resampler(self):
+        """Initializes a fresh stateful resampler."""
+        self._resampler = soxr.ResampleStream(
+            in_rate=self._audio_rate,
+            out_rate=16000,
+            num_channels=1,
+            dtype='float32',
+            #quality='MQ' # default to high quality (HQ), might need to lower it
+        )
 
     # ------------------------------------------------------------------
     # Setup
@@ -136,6 +151,9 @@ class STTAccumulator:
         self._listening = True
         self._clear_audio_buffer()
 
+        if self._audio_rate != 16000:
+            self._init_resampler() # Reset state for a new recording
+
         self._bus.publish("status", "Listening...")
         self._play_listening_emotion()
 
@@ -159,6 +177,9 @@ class STTAccumulator:
     def resume_listening(self):
         """Resume audio capture after robot finishes speaking."""
         self._clear_audio_buffer()
+        if self._audio_rate != 16000:
+            self._init_resampler() # Reset state
+
         self._listening = True
         self._bus.publish("status", "Listening...")
         self._play_listening_emotion()
@@ -197,11 +218,16 @@ class STTAccumulator:
         return (audio_resampled * 32767).astype(np.int16).tobytes()
     
     def _resample_chunk_to_16k(self, chunk: bytes) -> bytes:
-        """Resample a single raw PCM chunk to 16000 Hz if needed."""
+        """Resample a single raw PCM chunk to 16000 Hz using stateful memory."""
         if self._audio_rate == 16000:
             return chunk
+            
+        # Convert int16 PCM → float32 normalised to [-1.0, 1.0]
         audio = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
-        audio_resampled = librosa.resample(audio, orig_sr=self._audio_rate, target_sr=16000)
+        # resample_chunk remembers the boundary of the previous chunk!
+        audio_resampled = self._resampler.resample_chunk(audio)
+
+        # Clip to prevent overflow, then convert back to int16 bytes
         audio_resampled = np.clip(audio_resampled, -1.0, 1.0)
         return (audio_resampled * 32767).astype(np.int16).tobytes()
 
