@@ -285,21 +285,22 @@ All settings (except microphone) are applied live without needing to click any b
 
 ## How the Backend Connection Works (For future reference)
 ```text
-Robot WebSocket msg ("audio_data")
-  └─► receive_json()
-        └─► handle_audio_data()
-              ├─► stt_provider.send_audio()   [queues PCM bytes]
-              └─► recording buffers / _audio_chunks deque
-                    └─► _audio_generator()    [streams to Google STT in background thread]
-                          └─► _listen_responses()
-                                ├─► interim result → cancel _pending_response_task
-                                └─► final result   → stage_and_schedule()
-                                                        └─► reply_on_user_utt=False → STAGED, no auto-reply
-                                                              └─► source == "qtrobot"
-                                                                    └─► consumer.send({"type": "stt_staged"})
-                                                                          └─► received by BackendClient._listen_loop()
-                                                                                └─► _stt_staged_event.set()
-                                                                                      └─► unblocks wait_for_stt_staged()
+User starts speaking
+  └─► _on_audio() / _pa_callback() fires every ~20ms
+        ├─► _audio_buffer.extend(chunk)   [for "has_audio" check]
+        └─► backend.send_audio_chunk()    [live stream to backend]
+              └─► backend STT already transcribing in real-time
+                    ├─► interim results → cancel pending task (no-op for qtrobot)
+                    └─► final results  → stage_and_schedule()
+                                           └─► audio_done=False → hold stt_staged
+
+User clicks Send
+  └─► pause_listening()  [stop accumulating]
+  └─► reset_stt_staged_event()
+  └─► send_audio_done()  → backend sets _audio_done=True
+                              └─► staged_utterances non-empty → send stt_staged 
+  └─► wait_for_stt_staged() unblocks immediately (STT already done!)
+  └─► send_staged() → LLM responds with full transcript 
 
 Robot sends "robot_send_staged"  ◄─── triggered after STT is staged                                
   └─► reply_now()
