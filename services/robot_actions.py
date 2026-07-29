@@ -102,7 +102,7 @@ class RobotActions:
         when to resume listening.
         """
         if not self._behavior_talk_service:
-            rospy.logerr("Speech service not initialized.")
+            print(f"Speech Service not initialized or say() was called (no-op in UI-only mode): '{text}'")
             return
 
         # Play gesture in background
