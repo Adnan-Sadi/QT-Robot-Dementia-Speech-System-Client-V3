@@ -166,6 +166,11 @@ class BackendClient:
         assert self._ws
         await self._ws.send_str(json.dumps({"type": "robot_send_staged"}))
 
+    async def send_audio_done(self):
+        """Tell the backend that all audio chunks for this turn have been sent."""
+        assert self._ws
+        await self._ws.send_str(json.dumps({"type": "robot_user_audio_complete"}))
+
 
 class BackendBridge:
     """
@@ -249,7 +254,7 @@ class BackendBridge:
 
         
     def reset_stt_staged_event(self):
-        """Call before sending audio to ensure no stale stt_staged signal is carried over."""
+        """Reset the stt_staged event before starting a new audio send."""
         self._client._stt_staged_event.clear()
     
     def wait_for_stt_staged(self, timeout: float = 8.0) -> bool:
@@ -258,3 +263,10 @@ class BackendBridge:
         Returns True if signal received, False if timed out.
         """
         return self._client._stt_staged_event.wait(timeout=timeout)
+
+    def send_audio_done(self):
+        """Signal to the backend that all audio for this turn has been fully sent."""
+        if not self._started.is_set():
+            return
+        fut = asyncio.run_coroutine_threadsafe(self._client.send_audio_done(), self._loop)
+        fut.result()  # wait for it to be sent before continuing
