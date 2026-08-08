@@ -35,6 +35,7 @@ class BackendClient:
         self._stt_staged_event = threading.Event()  # Event to signal that STT transcript has been staged
         self._on_llm_response = None  # Set externally via BackendBridge.set_response_callback()
         self._on_chat_ended   = None  # callback() — fired when the backend closes the session
+        self._chat_ended_received = False  # set True when chat_ended is received; suppresses reconnect
 
     # ---------------------------
     # Lifecycle
@@ -130,10 +131,15 @@ class BackendClient:
                         self._stt_staged_event.set() # turn on the event to signal that STT transcript has been staged
                     
                     elif mtype == "chat_ended":
+                        self._chat_ended_received = True
                         if self._on_chat_ended:
                             self._on_chat_ended()
 
                 elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSE):
+                    if self._chat_ended_received:
+                        # Server closed cleanly after chat_ended — this is expected, do not reconnect
+                        self._chat_ended_received = False
+                        return   # exit _listen_loop gracefully
                     await self._reconnect_with_backoff()
                 elif msg.type == aiohttp.WSMsgType.ERROR:
                     await self._reconnect_with_backoff()
@@ -207,6 +213,7 @@ class BackendBridge:
         self._client = BackendClient(self._base, self._ws_path, self._source)
         self._client._on_llm_response = old_callback
         self._client._on_chat_ended = old_ended_callback
+        self._client._chat_ended_received = False 
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._started.clear()
