@@ -1,4 +1,3 @@
-import queue
 import threading
 import random
 # making rospy optional for testing without ROS
@@ -14,7 +13,6 @@ from services.event_bus import EventBus
 from config.settings import settings
 
 import numpy as np
-import librosa
 import soxr
 
 
@@ -211,7 +209,7 @@ class STTAccumulator:
         audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
 
         # Resample using librosa 
-        audio_resampled = librosa.resample(audio, orig_sr=self._audio_rate, target_sr=16000)
+        audio_resampled = self._resampler.resample_chunk(audio)
 
         # Clip to prevent any overflow, then convert back to int16
         audio_resampled = np.clip(audio_resampled, -1.0, 1.0)

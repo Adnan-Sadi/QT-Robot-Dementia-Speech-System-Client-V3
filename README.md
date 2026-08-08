@@ -16,7 +16,7 @@ It provides a desktop UI for the QT robot operator and connects the robot to a c
 4. The accumulated audio is sent to the backend, which transcribes it and generates a response.
 5. The robot speaks the response with a matching gesture.
 6. Once the robot finishes speaking, it automatically resumes listening.
-7. When the backend signals the conversation is complete (`close_session`), the application closes automatically after a short countdown.
+7. When the backend signals the conversation is complete (`chat_ended`), the application closes automatically after a short countdown.
 
 ---
 
@@ -28,7 +28,7 @@ It provides a desktop UI for the QT robot operator and connects the robot to a c
 - **Live-adjustable settings** — speech speed, volume, and transcript font size apply immediately without needing to click Apply
 - **Microphone management** — supports both QT Robot's built-in ReSpeaker mic and external USB microphones, with an Apply button that only restarts the mic stream when needed
 - **Persistent user settings** — last-used speed, volume, font size, and microphone are saved to a local `user_settings.json` file and restored on the next launch
-- **Session auto-close** — when the backend sends `close_session: true`, the robot finishes speaking, then the application closes with a countdown
+- **Session auto-close** — when the backend sends `chat_ended`, the robot finishes speaking, then the application closes with a countdown
 - **Modular architecture** for future backend-controlled robot actions (gestures, emotions, movement)
 
 ---

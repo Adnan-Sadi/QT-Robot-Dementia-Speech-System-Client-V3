@@ -153,7 +153,7 @@ class MainWindow(ctk.CTk):
                 self._transcript.append_system(f"⚠ {ev.text}")
                 self._send_btn.configure(state="normal")
 
-            elif kind == "close_session":
+            elif kind == "chat_ended":
                 # Robot has finished its final utterance — reset UI state and begin countdown
                 self._start_btn.configure(state="normal")
                 self._stop_btn.configure(state="disabled")

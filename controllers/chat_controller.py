@@ -16,7 +16,7 @@ class ChatController:
       - Robot starts listening (STT accumulates audio)
       - User clicks "Send" -> accumulated audio sent to backend
       - Robot speaks the response (STT paused)
-      - Robot finishes speaking -> back to step 1 (unless close_session is True)
+      - Robot finishes speaking -> back to step 1 
     """
 
     def __init__(self, bus: EventBus, robot: RobotActions, stt: STTAccumulator, backend: BackendBridge):
@@ -25,9 +25,11 @@ class ChatController:
         self._stt = stt
         self._backend = backend
         self._session_active = False
+        self._pending_chat_ended = False  # set by _on_chat_ended, used by _process_response
 
         # backend llm_responses are handled here
         self._backend.set_response_callback(self._on_llm_response_received)
+        self._backend.set_chat_ended_callback(self._on_chat_ended) 
 
     # ------------------------------------------------------------------
     # Session lifecycle
@@ -64,7 +66,7 @@ class ChatController:
         threading.Thread(target=_start, daemon=True).start()
 
     def stop_session(self):
-        """Called when user clicks Stop Chat (or triggered automatically on close_session)."""
+        """Called when user clicks Stop Chat (or triggered automatically on chat_ended)."""
         self._session_active = False
         self._stt.stop_listening()
         self._stt._clear_audio_buffer()  # Discard any stale audio so next session starts clean
@@ -137,21 +139,21 @@ class ChatController:
             if self._session_active:
                 self._stt.resume_listening()
 
-    def _on_llm_response_received(self, text, emotion, current_scenario, next_scenario, close_session=False):
+    def _on_llm_response_received(self, text, emotion, current_scenario, next_scenario):
         """
         Called from the asyncio loop thread when the backend sends an llm_response.
         Dispatches robot speech to a background thread.
         """
-        print(f"[ChatController] llm_response received: text='{text[:50]}', emotion={emotion}, scenario={current_scenario}, close_session={close_session}")
+        print(f"[ChatController] llm_response received: text='{text[:50]}', emotion={emotion}, scenario={current_scenario}")
         if not self._session_active:
             return
         threading.Thread(
             target=self._process_response,
-            args=(text, emotion, current_scenario, next_scenario, close_session),
+            args=(text, emotion, current_scenario, next_scenario),
             daemon=True
         ).start()
 
-    def _process_response(self, response_text, response_emotion, current_scenario, next_scenario, close_session):
+    def _process_response(self, response_text, response_emotion, current_scenario, next_scenario):
         """Background: publish response to UI, speak it, then resume listening or close."""
         try:
             self._bus.publish(
@@ -163,18 +165,30 @@ class ChatController:
             )
             self._bus.publish("status", "Speaking...")
             emotion = response_emotion.lower() if response_emotion else "neutral"
-
-            # This blocks until the robot finishes speaking — close_session check comes after
-            self._robot.say(response_text, emotion)
+            self._robot.say(response_text, emotion)  # blocks until speech is fully done
 
         except Exception as e:
             self._bus.publish("error", f"Response error: {e}")
             traceback.print_exc()
 
         finally:
-            if close_session:
-                # Robot has finished speaking — now trigger the shutdown sequence
+            if self._pending_chat_ended:
+                # Robot has finished speaking the final response — now it is safe to shut down
+                self._pending_chat_ended = False
                 self.stop_session()
-                self._bus.publish("close_session", "")
+                self._bus.publish("chat_ended", "")
             elif self._session_active:
                 self._stt.resume_listening()
+
+    # ------------------------------------------------------------------
+    # Session Closure: backend signals chat_ended
+    # ------------------------------------------------------------------
+    def _on_chat_ended(self):
+        """
+        Called from the asyncio loop thread when the backend sends a chat_ended signal.
+        We do NOT shut down immediately here — the robot may still be speaking the final
+        response. Instead, we set a flag so _process_response can trigger shutdown after
+        robot.say() returns.
+        """
+        print("[ChatController] chat_ended received — will close after robot finishes speaking.")
+        self._pending_chat_ended = True
