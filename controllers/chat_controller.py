@@ -55,6 +55,9 @@ class ChatController:
                 # Play wakeup gesture and speak greeting before listening starts.
                 self._robot.greet(settings.GREETING_TEXT)
 
+                # Publish greeting to transcript panel
+                self._bus.publish("llm_response", settings.GREETING_TEXT, emotion="happy", current_scenario=None, next_scenario=None)
+
                 self._stt.setup_ros_audio()
                 self._stt.start_listening()
                 
@@ -192,7 +195,7 @@ class ChatController:
         """
         print("[ChatController] chat_ended received — will close after robot finishes speaking.")
         self._pending_chat_ended = True
-        
+
         # Safety fallback: if _process_response never picks this up
         # shut down after a timeout.
         def _fallback_shutdown():
