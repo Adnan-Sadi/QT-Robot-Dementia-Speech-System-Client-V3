@@ -16,19 +16,19 @@ It provides a desktop UI for the QT robot operator and connects the robot to a c
 4. The accumulated audio is sent to the backend, which transcribes it and generates a response.
 5. The robot speaks the response with a matching gesture.
 6. Once the robot finishes speaking, it automatically resumes listening.
-7. When the backend signals the conversation is complete (`close_session`), the application closes automatically after a short countdown.
+7. When the backend signals the conversation is complete (`chat_ended`), the application closes automatically after a short countdown.
 
 ---
 
 ## Features
 
-- **Audio streaming to backend** — raw PCM audio is buffered locally and sent to the backend on Send; the backend handles speech-to-text
+- **Audio streaming to backend** — raw PCM audio is captured locally and streamed to the backend which handles speech-to-text
 - **Manual send button** for user-controlled turn-taking
-- **Always-visible settings panel** on the left side of the main window — no hidden menus
-- **Live-adjustable settings** — speech speed, volume, and transcript font size apply immediately without needing to click Apply
-- **Microphone management** — supports both QT Robot's built-in ReSpeaker mic and external USB microphones, with an Apply button that only restarts the mic stream when needed
+- **Always-visible settings panel** on the left side of the main window
+- **Live-adjustable settings** — Adjustable speech speed, volume, and transcript font size during live sessions
+- **Microphone management** — Provides a dropdown to select the audio input device (built-in ReSpeaker or external USB mic). Microphone changes are only applied before starting a new session.
 - **Persistent user settings** — last-used speed, volume, font size, and microphone are saved to a local `user_settings.json` file and restored on the next launch
-- **Session auto-close** — when the backend sends `close_session: true`, the robot finishes speaking, then the application closes with a countdown
+- **Session auto-close** — when the backend sends `chat_ended`, the robot finishes speaking, then the application closes with a countdown
 - **Modular architecture** for future backend-controlled robot actions (gestures, emotions, movement)
 
 ---
@@ -108,41 +108,77 @@ cp .env.example .env
 | `PASSWORD` | ✅ | Backend login password |
 | `AUDIO_RATE` | | Audio sample rate in Hz (default: `16000`) |
 | `MIC_SOURCE` | | `default` for QT built-in ReSpeaker mic, `external` for USB mic (default: `default`) |
-| `MIC_DEVICE_INDEX` | | PyAudio device index for external mic — only needed as a starting point; the app resolves by name automatically after first use |
+| `MIC_DEVICE_INDEX` | | PyAudio device index for external mic. This can be set manually but is not needed with the new versions as the app resolves by name automatically after first use |
 | `SPEECH_SPEED` | | Robot speech speed (default: `90`) |
 | `SPEECH_VOLUME` | | Robot speaker volume 0–100 (default: `80`) |
 | `GREETING_TEXT` | | Text spoken at the start of each session |
 | `LLM_TIMEOUT` | | Backend response timeout in seconds (default: `25.0`) |
 | `EMOTION_LISTENING` | | Comma-separated QT emotion names shown while listening |
 
-> **Note:** `SPEECH_SPEED`, `SPEECH_VOLUME`, and microphone settings can all be changed at runtime from the Settings panel in the UI and will be saved automatically. The `.env` values serve as the initial defaults only.
-
 ---
 
 ## Setup Instructions
 
-### 1. Clone the repository
+### 1. Create the new ROS Python project. (QT Robot only)
 
+- Navigate to the `src` folder of your catkin workspace:
+```bash
+cd ~/catkin_ws/src 
+```
+- Create a new ROS package for the QT Robot Dementia Speech System Client:
+```bash
+catkin_create_pkg qt_dss_app std_msgs rospy roscpp -D "Dementia speech system application connected to the cloud backend" -V "1.0.0" -a "Adnan Sadi" 
+```
+> [!TIP]
+> The text inside the quotes (`-D "..."`, `-V "..."`, and `-a "..."`) represents project metadata description, version, and author. You can customize these values to anything you want when creating your own ROS project. You can also customize the package name (`qt_dss_app`) to your liking, but make sure to update the paths in the following steps accordingly.
+
+### 2. Clone the repository
+
+- Navigate to the `src` folder of the newly created ROS project:
+```bash
+cd qt_dss_app/src 
+```
+
+- Clone this repository into the `src` folder:
 ```bash
 git clone https://github.com/Adnan-Sadi/QT-Robot-Dementia-Speech-System-Client-V3.git
+```
+- Navigate into the cloned repository:
+```bash
 cd QT-Robot-Dementia-Speech-System-Client-V3
 ```
 
-### 2. Create the virtual environment
+### 3. Create the virtual environment
+- In case the venv package is missing, run: 
+```bash
+sudo apt install python3.8-venv 
+```
+
+- Create a virtual environment:
 
 ```bash
 python3 -m venv dss_venv
+```
+
+- activate the virtual environment:
+
+```bash
 source dss_venv/bin/activate
 ```
 
-### 3. Install dependencies
+### 4. Install dependencies and create the `.env` file
+
+- Update pip (not strictly necessary):
 
 ```bash
 pip install --upgrade pip
+```
+- Install dependencies from `requirements.txt`:
+```bash
 pip install -r requirements.txt
 ```
 
-### 4. Create the `.env` file
+- Create the `.env` file
 
 ```bash
 cp .env.example .env
@@ -150,39 +186,12 @@ cp .env.example .env
 
 Open `.env` and fill in your backend URL, credentials, and any other values you want to override.
 
-### 5. (Optional: kept from old version of app) Find the external USB microphone device index
 
-If you are using an external USB microphone (such as the JOUNIVO USB Microphone), you can find its device index to set as a starting point in `.env`. After the first time you click **Apply Microphone** in the UI, the device name is saved and the index is resolved automatically on future launches — you will not need to update this manually again.
-
-Check if the device is visible to the OS:
-
-```bash
-arecord -l
-```
-
-Find the PyAudio device index:
-
-```bash
-python3 << 'EOF'
-import pyaudio
-p = pyaudio.PyAudio()
-for i in range(p.get_device_count()):
-    info = p.get_device_info_by_index(i)
-    if info['maxInputChannels'] > 0:
-        print(f"Index {i}: {info['name']} (inputs: {info['maxInputChannels']}, rate: {int(info['defaultSampleRate'])})")
-p.terminate()
-EOF
-```
-
-Set `MIC_DEVICE_INDEX` in your `.env` to the index shown for your microphone.
-
----
-
-## Making the Application Double-Clickable (One-Time Setup)
+### 5. Making the Application Double-Clickable (One-Time Setup)
 
 These steps only need to be done once. After this, the application can be launched by double-clicking an icon on the robot's desktop.
 
-### Step 1: Make the launcher script executable
+#### Step 1: Make the launcher script executable
 
 In a terminal on the robot:
 
@@ -192,7 +201,7 @@ chmod +x /home/qtrobot/catkin_ws/src/qt_dss_app/src/QT-Robot-Dementia-Speech-Sys
 
 Replace `/path/to/` with the actual path to the cloned repository (e.g. `/home/qtrobot/catkin_ws/src/qt_dss_app/src/`). 
 
-### Step 2: Create a desktop shortcut file
+#### Step 2: Create a desktop shortcut file
 
 Create a `.desktop` file so the file manager recognises it as a launchable application:
 
@@ -218,7 +227,7 @@ Categories=Application;
 
 Save the file (`Ctrl+O`, `Enter`, `Ctrl+X`).
 
-### Step 3: Mark the desktop shortcut as trusted/executable
+#### Step 3: Mark the desktop shortcut as trusted/executable
 
 ```bash
 chmod +x ~/Desktop/qt-speech-system.desktop
@@ -226,7 +235,7 @@ chmod +x ~/Desktop/qt-speech-system.desktop
 
 On some desktop environments (such as LXDE, which QT robot uses), you may also need to right-click the file and select **"Trust this executable"** or **"Allow executing"** from the context menu.
 
-### Step 4: Test it
+#### Step 4: Test it
 
 Double-click the icon on the desktop. The terminal window should open, and you should see:
 
@@ -244,6 +253,34 @@ On the very first run, or after `requirements.txt` changes, you will instead see
 [Launcher] Starting QT Robot Speech System...
 ```
 
+### 6. Pulling updates from the repository
+- Navigate to the repository folder:
+```bash
+cd ~/catkin_ws/src/qt_dss_app/src/QT-Robot-Dementia-Speech-System-Client-V3/ 
+```
+
+- restore any git changes (this happens when using the executable launcherm which modifies the launcher script to add the venv activation):
+```bash
+git restore .
+```
+
+- Pull the latest changes:
+```bash
+git pull
+```
+
+- Make the launcher script executable again (since it was restored):
+```bash
+chmod +x /home/qtrobot/catkin_ws/src/qt_dss_app/src/QT-Robot-Dementia-Speech-System-Client-V3/launch.sh
+```
+
+- Mark the desktop shortcut as trusted/executable again (if needed):
+```bash
+chmod +x ~/Desktop/qt-speech-system.desktop
+```
+
+> [!TIP]
+> After pulling updates, you can now launch the application using the desktop shortcut.
 ---
 
 ## Running the Application Manually (Terminal)

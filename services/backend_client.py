@@ -4,6 +4,7 @@ import threading
 from urllib.parse import urlencode
 from typing import Optional
 import contextlib
+import base64
 
 import aiohttp
 
@@ -33,6 +34,8 @@ class BackendClient:
 
         self._stt_staged_event = threading.Event()  # Event to signal that STT transcript has been staged
         self._on_llm_response = None  # Set externally via BackendBridge.set_response_callback()
+        self._on_chat_ended   = None  # callback() — fired when the backend closes the session
+        self._chat_ended_received = False  # set True when chat_ended is received; suppresses reconnect
 
     # ---------------------------
     # Lifecycle
@@ -113,23 +116,30 @@ class BackendClient:
                             text = payload
                             current_scenario = None
                             next_scenario = None
-                            close_session = False
                         elif isinstance(payload, dict):
                             text = payload.get("text", "")
                             current_scenario = payload.get("current_scenario")
                             next_scenario = payload.get("next_scenario")
-                            close_session = bool(payload.get("close_session", False))
                         else:
                             # Skip if payload is neither string nor dict
                             continue
                         
                         if self._on_llm_response:
-                            self._on_llm_response(text, emotion, current_scenario, next_scenario, close_session)
+                            self._on_llm_response(text, emotion, current_scenario, next_scenario)
 
                     elif mtype == "stt_staged":
                         self._stt_staged_event.set() # turn on the event to signal that STT transcript has been staged
+                    
+                    elif mtype == "chat_ended":
+                        self._chat_ended_received = True
+                        if self._on_chat_ended:
+                            self._on_chat_ended()
 
                 elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSE):
+                    if self._chat_ended_received:
+                        # Server closed cleanly after chat_ended — this is expected, do not reconnect
+                        self._chat_ended_received = False
+                        return   # exit _listen_loop gracefully
                     await self._reconnect_with_backoff()
                 elif msg.type == aiohttp.WSMsgType.ERROR:
                     await self._reconnect_with_backoff()
@@ -152,7 +162,6 @@ class BackendClient:
 
     async def send_audio_chunk(self, pcm_bytes: bytes, sample_rate: int = 16000):
         """Send a raw PCM audio chunk to the backend."""
-        import base64
         payload = {
             "type": "audio_data",
             "data": base64.b64encode(pcm_bytes).decode("utf-8"),
@@ -200,8 +209,11 @@ class BackendBridge:
         """
         # Preserve the response callback across resets
         old_callback = self._client._on_llm_response
+        old_ended_callback    = self._client._on_chat_ended
         self._client = BackendClient(self._base, self._ws_path, self._source)
         self._client._on_llm_response = old_callback
+        self._client._on_chat_ended = old_ended_callback
+        self._client._chat_ended_received = False 
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._started.clear()
@@ -231,9 +243,16 @@ class BackendBridge:
     def set_response_callback(self, callback):
         """
         Register a callable invoked when the backend sends an llm_response.
-        Signature: callback(text, emotion, current_scenario, next_scenario, close_session)
+        Signature: callback(text, emotion, current_scenario, next_scenario)
         """
         self._client._on_llm_response = callback
+
+    def set_chat_ended_callback(self, callback):
+        """
+        Register a callable invoked when the backend sends a chat_ended signal.
+        Signature: callback()
+        """
+        self._client._on_chat_ended = callback
 
     def send_audio_chunk(self, pcm_bytes: bytes, sample_rate: int = 16000):
         """Fire-and-forget: send a raw PCM chunk to the backend."""

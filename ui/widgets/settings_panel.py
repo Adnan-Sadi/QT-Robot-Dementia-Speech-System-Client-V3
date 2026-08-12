@@ -65,10 +65,32 @@ class SettingsPanel(ctk.CTkFrame):
         self._mic_dropdown.grid(row=0, column=0, sticky="ew", padx=(0, 6))
 
         # Apply button only for microphone (changing mic requires stream restart)
-        ctk.CTkButton(
-            mic_row_frame, text="Apply", width=100, font=("", 14, "bold"),
+        self._mic_apply_btn = ctk.CTkButton(
+            mic_row_frame,
+            text="Apply",
+            width=100,
+            font=("", 14, "bold"),
             command=self._on_apply_mic
-        ).grid(row=0, column=1)
+        )
+        self._mic_apply_btn.grid(row=0, column=1)
+
+        # ── Section: Record Session ──
+        ctk.CTkLabel(self, text="Record Session", font=("", 20, "bold")).grid(
+            row=4, column=0, sticky="w", padx=16, pady=(8, 2)
+        )
+        record_row_frame = ctk.CTkFrame(self, fg_color="transparent")
+        record_row_frame.grid(row=5, column=0, sticky="ew", padx=16, pady=(0, 12))
+        record_row_frame.grid_columnconfigure(1, weight=1)
+
+        self._record_var = ctk.BooleanVar(value=getattr(settings, "RECORD_SESSION", False))
+        self._record_switch = ctk.CTkSwitch(
+            record_row_frame,
+            text="Save conversation audio",
+            variable=self._record_var,
+            font=("", 16),
+            command=self._on_record_toggle,
+        )
+        self._record_switch.grid(row=0, column=0, sticky="w")
 
         # Speed slider (live) — max capped at 120
         ctk.CTkLabel(self, text="Speed:", font=("", 18)).grid(row=6, column=0, sticky="w", padx=16, pady=2)
@@ -249,3 +271,57 @@ class SettingsPanel(ctk.CTkFrame):
                     return f"[{d['index']}] {d['name']} ({d['sample_rate']} Hz)"
         # Fallback: no match found, show built-in
         return self._ROS_MIC_LABEL
+    
+    def _on_record_toggle(self):
+        """Persist the recording preference immediately when toggled."""
+        settings.RECORD_SESSION = self._record_var.get()
+
+    def set_session_active(self, active: bool):
+        """
+        Disable mic and recording controls while a session is running.
+        Re-enables them when the session ends.
+        Called by MainWindow on Start/Stop Chat.
+        """
+        state = "disabled" if active else "normal"
+        tooltip_text = (
+            "Cannot be changed during an active session.\n"
+            "Please stop the current session first."
+        )
+
+        self._mic_dropdown.configure(state=state)
+        self._mic_apply_btn.configure(state=state)
+        self._record_switch.configure(state=state)
+
+        if active:
+            # Bind hover tooltip to the disabled widgets
+            for widget in (self._mic_dropdown, self._mic_apply_btn, self._record_switch):
+                widget.bind("<Enter>", lambda e, t=tooltip_text: self._show_tooltip(e, t))
+                widget.bind("<Leave>", self._hide_tooltip)
+        else:
+            # Remove tooltip bindings
+            for widget in (self._mic_dropdown, self._mic_apply_btn, self._record_switch):
+                widget.unbind("<Enter>")
+                widget.unbind("<Leave>")
+    
+
+    def _show_tooltip(self, event, text: str):
+        """Show a small floating tooltip label near the cursor."""
+        x = event.widget.winfo_rootx() + 20
+        y = event.widget.winfo_rooty() + event.widget.winfo_height() + 4
+        self._tooltip = ctk.CTkToplevel(self)
+        self._tooltip.wm_overrideredirect(True)  # no window chrome
+        self._tooltip.wm_geometry(f"+{x}+{y}")
+        ctk.CTkLabel(
+            self._tooltip, text=text, font=("", 13),
+            fg_color=("gray80", "gray25"), corner_radius=6,
+            padx=10, pady=6,
+        ).pack()
+
+    def _hide_tooltip(self, event=None):
+        """Destroy the tooltip window if it exists."""
+        if hasattr(self, "_tooltip") and self._tooltip is not None:
+            try:
+                self._tooltip.destroy()
+            except Exception:
+                pass
+            self._tooltip = None

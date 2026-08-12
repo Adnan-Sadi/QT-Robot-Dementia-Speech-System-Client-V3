@@ -24,6 +24,7 @@ _PERSISTED_KEYS = [
     "MIC_SOURCE",
     "MIC_DEVICE_INDEX",
     "MIC_DEVICE_NAME",
+    "RECORD_SESSION", 
 ]
 
 

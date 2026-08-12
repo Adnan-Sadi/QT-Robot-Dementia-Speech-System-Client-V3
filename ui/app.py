@@ -90,12 +90,14 @@ class MainWindow(ctk.CTk):
         self._start_btn.configure(state="disabled")
         self._stop_btn.configure(state="normal")
         self._send_btn.configure(state="normal")
+        self._settings.set_session_active(True)
         self._controller.start_session()
 
     def _on_stop(self):
         self._start_btn.configure(state="normal")
         self._stop_btn.configure(state="disabled")
         self._send_btn.configure(state="disabled")
+        self._settings.set_session_active(False)
         self._controller.stop_session()
 
     def _on_send(self):
@@ -153,12 +155,13 @@ class MainWindow(ctk.CTk):
                 self._transcript.append_system(f"⚠ {ev.text}")
                 self._send_btn.configure(state="normal")
 
-            elif kind == "close_session":
+            elif kind == "chat_ended":
                 # Robot has finished its final utterance — reset UI state and begin countdown
                 self._start_btn.configure(state="normal")
                 self._stop_btn.configure(state="disabled")
                 self._send_btn.configure(state="disabled")
-                self._begin_close_countdown(seconds=5)
+                self._settings.set_session_active(False)
+                self._begin_close_countdown(seconds_remaining=5)
 
             ev = self._bus.try_get()
 
