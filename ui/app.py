@@ -161,7 +161,7 @@ class MainWindow(ctk.CTk):
                 self._stop_btn.configure(state="disabled")
                 self._send_btn.configure(state="disabled")
                 self._settings.set_session_active(False)
-                self._begin_close_countdown(seconds=5)
+                self._begin_close_countdown(seconds_remaining=5)
 
             ev = self._bus.try_get()
 
