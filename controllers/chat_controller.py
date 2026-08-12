@@ -1,13 +1,12 @@
-import time
 import threading
 import traceback
 
 from services.event_bus import EventBus
 from services.backend_client import BackendBridge
 from services.stt_accumulator import STTAccumulator
+from services.session_recorder import SessionRecorder
 from services.robot_actions import RobotActions
 from config.settings import settings
-from config.user_settings import save_user_settings
 
 
 class ChatController:
@@ -24,6 +23,7 @@ class ChatController:
         self._robot = robot
         self._stt = stt
         self._backend = backend
+        self._recorder = SessionRecorder(device_index=settings.MIC_DEVICE_INDEX, sample_rate=16000) if settings.RECORD_SESSION else None
         self._session_active = False
         self._pending_chat_ended = False  # set by _on_chat_ended, used by _process_response
 
@@ -52,6 +52,10 @@ class ChatController:
                 self._backend.start()
                 self._bus.publish("status", "Connected. Starting listener...")
 
+                # Start recording session audio to WAV file (if enabled)
+                if settings.RECORD_SESSION:
+                    self._recorder.start()
+
                 # Play wakeup gesture and speak greeting before listening starts.
                 self._robot.greet(settings.GREETING_TEXT)
 
@@ -73,6 +77,11 @@ class ChatController:
         self._session_active = False
         self._stt.stop_listening()
         self._stt._clear_audio_buffer()  # Discard any stale audio so next session starts clean
+
+        # Stop session recording if active
+        if self._recorder is not None:
+            self._recorder.stop()
+
         self._backend.stop()             # stop() now resets the backend for a future start()
         self._bus.publish("status", "Session ended.")
 

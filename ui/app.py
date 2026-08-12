@@ -90,12 +90,14 @@ class MainWindow(ctk.CTk):
         self._start_btn.configure(state="disabled")
         self._stop_btn.configure(state="normal")
         self._send_btn.configure(state="normal")
+        self._settings.set_session_active(True)
         self._controller.start_session()
 
     def _on_stop(self):
         self._start_btn.configure(state="normal")
         self._stop_btn.configure(state="disabled")
         self._send_btn.configure(state="disabled")
+        self._settings.set_session_active(False)
         self._controller.stop_session()
 
     def _on_send(self):
@@ -158,6 +160,7 @@ class MainWindow(ctk.CTk):
                 self._start_btn.configure(state="normal")
                 self._stop_btn.configure(state="disabled")
                 self._send_btn.configure(state="disabled")
+                self._settings.set_session_active(False)
                 self._begin_close_countdown(seconds=5)
 
             ev = self._bus.try_get()

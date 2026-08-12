@@ -18,6 +18,9 @@ class Settings:
     MIC_SOURCE = os.getenv("MIC_SOURCE", "default").lower()
     MIC_DEVICE_INDEX = os.getenv("MIC_DEVICE_INDEX", None)
     MIC_DEVICE_NAME = None  # Set at runtime from user_settings.json
+
+    # recording configuration
+    RECORD_SESSION: bool = False
     
     # Speech Configuration
     SPEECH_SPEED = int(os.getenv("SPEECH_SPEED", "90"))

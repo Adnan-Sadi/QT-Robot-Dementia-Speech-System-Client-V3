@@ -48,6 +48,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# session recordings
+recordings/*.wav
+
 # mypy
 .mypy_cache/
 .dmypy.json
