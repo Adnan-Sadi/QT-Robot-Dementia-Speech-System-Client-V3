@@ -36,5 +36,5 @@ class TranscriptPanel(ctk.CTkFrame):
         self._textbox.configure(state="normal")
         self._textbox.delete("1.0", "end")
         self._textbox.insert("end", text)
-        self._textbox.see("end")
+        self._textbox.see("1.0") # Scroll to the top 
         self._textbox.configure(state="disabled")
