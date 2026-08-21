@@ -120,12 +120,49 @@ class MainWindow(ctk.CTk):
     # ------------------------------------------------------------------
 
     def _begin_close_countdown(self, seconds_remaining=5):
-        """Show a countdown in the status bar, then destroy the window."""
-        if seconds_remaining > 0:
-            self._status.set(f"Session complete. Window closing in {seconds_remaining}s...")
-            self.after(1000, lambda: self._begin_close_countdown(seconds_remaining - 1))
-        else:
-            self.destroy()
+        """Open a centered overlay window showing the countdown, then destroy the app."""
+        overlay = ctk.CTkToplevel(self)
+        overlay.title("")
+        overlay.resizable(False, False)
+        overlay.grab_set()  # make it modal so user can't interact with the main window
+
+        # Square size
+        size = 300
+        overlay.geometry(f"{size}x{size}")
+        # Center over the main window
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - size) // 2
+        y = self.winfo_y() + (self.winfo_height() - size) // 2
+        overlay.geometry(f"{size}x{size}+{x}+{y}")
+
+        # "Session complete" label at the top
+        ctk.CTkLabel(
+            overlay,
+            text="Session complete.\nWindow closing in",
+            font=("", 16, "bold"),
+            justify="center"
+        ).pack(pady=(30, 10))
+
+        # Canvas for the circular timer
+        canvas = ctk.CTkCanvas(overlay, width=140, height=140, bg="#2b2b2b", highlightthickness=0)
+        canvas.pack()
+
+        def _draw_circle(n):
+            canvas.delete("all")
+            # Outer circle
+            canvas.create_oval(10, 10, 130, 130, outline="#9333EA", width=6, fill="#1a1a2e")
+            # Number in the center
+            canvas.create_text(70, 70, text=str(n), fill="white", font=("", 48, "bold"))
+
+        def _tick(n):
+            if n > 0:
+                _draw_circle(n)
+                overlay.after(1000, lambda: _tick(n - 1))
+            else:
+                overlay.destroy()
+                self.destroy()
+
+        _tick(seconds_remaining)
 
     # ------------------------------------------------------------------
     # Event bus polling
