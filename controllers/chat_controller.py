@@ -217,13 +217,14 @@ class ChatController:
 
         # Safety fallback: if _process_response never picks this up
         # shut down after a timeout.
-        def _fallback_shutdown():
-            import time
-            time.sleep(25)  # wait up to 25s for robot to finish speaking
-            if self._pending_chat_ended:
-                print("[ChatController] chat_ended fallback shutdown triggered.")
-                self._pending_chat_ended = False
-                self.stop_session()
-                self._bus.publish("chat_ended", "")
+        # I only need this when I am not running the client on the robot itself, because the robot's say() function is blocking the thread until the robot finishes speaking.
+        # def _fallback_shutdown():
+        #     import time
+        #     time.sleep(25)  # wait up to 25s for robot to finish speaking
+        #     if self._pending_chat_ended:
+        #         print("[ChatController] chat_ended fallback shutdown triggered.")
+        #         self._pending_chat_ended = False
+        #         self.stop_session()
+        #         self._bus.publish("chat_ended", "")
         
-        threading.Thread(target=_fallback_shutdown, daemon=True).start()
+        # threading.Thread(target=_fallback_shutdown, daemon=True).start()
