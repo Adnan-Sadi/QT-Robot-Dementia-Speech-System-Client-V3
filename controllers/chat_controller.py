@@ -64,6 +64,7 @@ class ChatController:
 
                 self._stt.setup_ros_audio()
                 self._stt.start_listening()
+                self._bus.publish("status", "Listening...") 
                 
             except Exception as e:
                 self._bus.publish("error", f"Failed to start: {e}")
@@ -140,9 +141,16 @@ class ChatController:
             self._backend.send_audio_done()
 
             # Wait for backend to confirm all STT results are staged
-            staged_ok = self._backend.wait_for_stt_staged(timeout=20.0)
+            staged_ok = self._backend.wait_for_stt_staged(timeout=5.0) # wait 5 seconds, should be enough since I am streaming the audio now
             if not staged_ok:
-                print("[ChatController] Timed out waiting for stt_staged signal — sending anyway.")
+                # No STT transcript was produced — the user was silent (or only background noise).
+                # Abort this turn silently and go back to listening.
+                print("[ChatController] No STT results staged — user was silent. Aborting turn.")
+                if self._session_active:
+                    self._stt.resume_listening()
+                    self._bus.publish("status", "Listening...")
+                return
+
             self._backend.send_staged()
 
         except Exception as e:
@@ -150,6 +158,7 @@ class ChatController:
             traceback.print_exc()
             if self._session_active:
                 self._stt.resume_listening()
+                self._bus.publish("status", "Listening...")
 
     def _on_llm_response_received(self, text, emotion, current_scenario, next_scenario):
         """
@@ -191,6 +200,7 @@ class ChatController:
                 self._bus.publish("chat_ended", "")
             elif self._session_active:
                 self._stt.resume_listening()
+                self._bus.publish("status", "Listening...") 
 
     # ------------------------------------------------------------------
     # Session Closure: backend signals chat_ended

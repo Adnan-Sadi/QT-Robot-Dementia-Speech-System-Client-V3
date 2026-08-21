@@ -89,7 +89,7 @@ class MainWindow(ctk.CTk):
     def _on_start(self):
         self._start_btn.configure(state="disabled")
         self._stop_btn.configure(state="normal")
-        self._send_btn.configure(state="normal")
+        # self._send_btn.configure(state="normal")
         self._settings.set_session_active(True)
         self._controller.start_session()
 
@@ -174,23 +174,20 @@ class MainWindow(ctk.CTk):
         while ev:
             kind = ev.kind
 
-            if kind == "stt_final":
-                if ev.text:
-                    # Audio captured and ready to send
-                    self._send_btn.configure(state="normal")
-
-            elif kind == "llm_response":
+            if kind == "llm_response":
                 # Only show what the robot said — no user text, no scenario label
                 self._transcript.append_assistant(ev.text)
-                # Re-enable send after robot finishes speaking
-                self._send_btn.configure(state="normal")
 
             elif kind == "status":
                 self._status.set(ev.text)
+                # Enable/disable the Send button based on status
+                if ev.text == "Listening...":
+                    self._send_btn.configure(state="normal")
+                elif ev.text in ("Thinking...", "Speaking..."):
+                    self._send_btn.configure(state="disabled")
 
             elif kind == "error":
                 self._transcript.append_system(f"⚠ {ev.text}")
-                self._send_btn.configure(state="normal")
 
             elif kind == "chat_ended":
                 # Robot has finished its final utterance — reset UI state and begin countdown
