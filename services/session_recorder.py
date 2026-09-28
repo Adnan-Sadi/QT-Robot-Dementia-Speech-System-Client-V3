@@ -1,24 +1,21 @@
 """
 SessionRecorder — lightweight WAV recording of the user's microphone input.
 
-Opens a separate PyAudio input stream (independent of the STT accumulator)
-and writes raw PCM frames to a WAV file in the /recordings folder.
+Receives PCM audio captured by STTAccumulator and writes it to a WAV file
+in the /recordings folder.
 
 Usage:
-    recorder = SessionRecorder(device_index=None, sample_rate=16000)
+    recorder = SessionRecorder(sample_rate=16000)
     recorder.start()
-    # ... session runs ...
-    recorder.stop()   # finalises the WAV file
-
-The output folder is created automatically on first use.
+    recorder.write(audio_chunk)
+    recorder.stop()
 """
 
-import os
-import wave
-import threading
 import datetime
-
-import pyaudio
+import os
+import queue
+import threading
+import wave
 
 
 # Recordings are stored here — folder is created automatically, gitignored
@@ -26,29 +23,28 @@ _RECORDINGS_DIR = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "recordings")
 )
 
-_CHUNK = 1024  # frames per buffer
+_STOP_WRITER = object()
 
 
 class SessionRecorder:
     """
-    Records microphone audio to a timestamped WAV file inside the /recordings folder.
-    Uses a background thread to prevent blocking the main/UI thread.
+    Writes microphone audio chunks to a timestamped WAV file.
+
+    Audio is written on a background thread so the PyAudio or ROS audio
+    callback is never blocked by disk I/O.
     """
 
-    def __init__(self, device_index=None, sample_rate: int = 16000):
+    def __init__(self, sample_rate: int = 16000):
         """
-        device_index: PyAudio device index to record from (None = system default).
-        sample_rate:  Capture rate in Hz. Should match the mic's native rate to
-                      avoid any on-the-fly resampling overhead.
+        sample_rate: Rate of the PCM chunks passed to write().
         """
-        self._device_index = device_index
         self._sample_rate = sample_rate
 
-        self._pa = None
-        self._stream = None
         self._wav_file = None
         self._thread = None
-        self._stop_event = threading.Event()
+        self._queue = None
+        self._state_lock = threading.Lock()
+        self._accepting_audio = False
         self._output_path = None
 
     # ------------------------------------------------------------------
@@ -56,80 +52,94 @@ class SessionRecorder:
     # ------------------------------------------------------------------
 
     def start(self):
-        """Open the audio stream and start writing to a new WAV file."""
-        if self._thread and self._thread.is_alive():
-            print("[SessionRecorder] Already recording — ignoring start().")
-            return
+        """Open a WAV file and start the background writer."""
+        with self._state_lock:
+            if self._thread and self._thread.is_alive():
+                print("[SessionRecorder] Already recording — ignoring start().")
+                return
 
-        # Ensure the recordings folder exists
-        os.makedirs(_RECORDINGS_DIR, exist_ok=True)
+            os.makedirs(_RECORDINGS_DIR, exist_ok=True)
 
-        # Build a timestamped filename
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        self._output_path = os.path.join(_RECORDINGS_DIR, f"session_{timestamp}.wav")
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            self._output_path = os.path.join(
+                _RECORDINGS_DIR,
+                f"session_{timestamp}.wav",
+            )
 
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._record_loop, daemon=True)
-        self._thread.start()
+            wav_file = wave.open(self._output_path, "wb")
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)  # 16-bit PCM = 2 bytes per sample
+            wav_file.setframerate(self._sample_rate)
+
+            audio_queue = queue.SimpleQueue()
+
+            self._wav_file = wav_file
+            self._queue = audio_queue
+            self._accepting_audio = True
+            self._thread = threading.Thread(
+                target=self._record_loop,
+                args=(wav_file, audio_queue),
+                daemon=True,
+            )
+            self._thread.start()
+
         print(f"[SessionRecorder] Recording started → {self._output_path}")
 
-    def stop(self):
-        """Signal the recording thread to stop and wait for it to finalise the file."""
-        if self._thread is None or not self._thread.is_alive():
+    def write(self, pcm_bytes: bytes):
+        """
+        Queue one raw mono int16 PCM chunk for recording.
+
+        This method is safe to call from a PyAudio or ROS callback.
+        It does nothing when recording is not active.
+        """
+        if not pcm_bytes:
             return
-        self._stop_event.set()
-        self._thread.join(timeout=5)
-        self._thread = None
+
+        with self._state_lock:
+            if not self._accepting_audio or self._queue is None:
+                return
+            self._queue.put(pcm_bytes)
+
+    def stop(self):
+        """Stop accepting audio and finalise the WAV file."""
+        with self._state_lock:
+            if not self._accepting_audio or self._thread is None:
+                return
+
+            self._accepting_audio = False
+            thread = self._thread
+            self._queue.put(_STOP_WRITER)
+
+        # Wait until every queued chunk has been written and the WAV header
+        # has been finalised.
+        thread.join()
+
+        with self._state_lock:
+            self._thread = None
+            self._queue = None
+            self._wav_file = None
+
         print(f"[SessionRecorder] Recording saved → {self._output_path}")
 
     @property
     def output_path(self):
-        """Path of the last (or current) recording file, or None if not yet started."""
+        """Path of the last or current recording, or None if never started."""
         return self._output_path
 
     # ------------------------------------------------------------------
     # Background recording loop
     # ------------------------------------------------------------------
 
-    def _record_loop(self):
-        """Runs in a daemon thread. Opens PyAudio, writes frames, closes on stop."""
+    @staticmethod
+    def _record_loop(wav_file, audio_queue):
+        """Write queued PCM chunks without blocking the capture callback."""
         try:
-            self._pa = pyaudio.PyAudio()
+            while True:
+                data = audio_queue.get()
+                if data is _STOP_WRITER:
+                    break
 
-            self._stream = self._pa.open(
-                format=pyaudio.paInt16,
-                channels=1,
-                rate=self._sample_rate,
-                input=True,
-                input_device_index=self._device_index,
-                frames_per_buffer=_CHUNK,
-            )
-
-            with wave.open(self._output_path, "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(self._pa.get_sample_size(pyaudio.paInt16))
-                wf.setframerate(self._sample_rate)
-
-                while not self._stop_event.is_set():
-                    try:
-                        data = self._stream.read(_CHUNK, exception_on_overflow=False)
-                        wf.writeframes(data)
-                    except OSError as e:
-                        print(f"[SessionRecorder] Read error (ignored): {e}")
-
-        except Exception as e:
-            print(f"[SessionRecorder] Failed to start recording: {e}")
+                # wave.close() finalises the header at the end.
+                wav_file.writeframesraw(data)
         finally:
-            if self._stream is not None:
-                try:
-                    self._stream.stop_stream()
-                    self._stream.close()
-                except Exception:
-                    pass
-                self._stream = None
-            if self._pa is not None:
-                try:
-                    self._pa.terminate()
-                except Exception:
-                    pass
-                self._pa = None
+            wav_file.close()

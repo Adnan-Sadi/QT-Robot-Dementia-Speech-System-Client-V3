@@ -23,7 +23,8 @@ class ChatController:
         self._robot = robot
         self._stt = stt
         self._backend = backend
-        self._recorder = SessionRecorder(device_index=settings.MIC_DEVICE_INDEX, sample_rate=16000) if settings.RECORD_SESSION else None
+        self._recorder = SessionRecorder(sample_rate=settings.AUDIO_RATE)
+        self._stt.set_recorder(self._recorder)
         self._session_active = False
         self._pending_chat_ended = False  # set by _on_chat_ended, used by _process_response
 
@@ -56,13 +57,14 @@ class ChatController:
                 if settings.RECORD_SESSION:
                     self._recorder.start()
 
+                self._stt.setup_ros_audio()
+
                 # Play wakeup gesture and speak greeting before listening starts.
                 self._robot.greet(settings.GREETING_TEXT)
 
                 # Publish greeting to transcript panel
                 self._bus.publish("llm_response", settings.GREETING_TEXT, emotion="happy", current_scenario=None, next_scenario=None)
 
-                self._stt.setup_ros_audio()
                 self._stt.start_listening()
                 self._bus.publish("status", "Listening...") 
                 
