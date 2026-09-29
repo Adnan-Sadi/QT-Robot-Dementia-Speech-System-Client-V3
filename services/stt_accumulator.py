@@ -14,6 +14,7 @@ from config.settings import settings
 
 import numpy as np
 import soxr
+import pyaudio
 
 
 class STTAccumulator:
@@ -38,6 +39,7 @@ class STTAccumulator:
         self._audio_sub = None
 
         self._backend = backend          # BackendBridge — for sending audio on Send click
+        self._recorder = None            # SessionRecorder — for saving WAV files of the session
         self._audio_buffer = bytearray() # Raw PCM accumulation for backend audio sending
 
         # Emotion service for listening feedback
@@ -63,6 +65,10 @@ class STTAccumulator:
             #quality='MQ' # default to high quality (HQ), might need to lower it
         )
 
+    def set_recorder(self, recorder):
+        """Attach a SessionRecorder that receives copies of captured audio."""
+        self._recorder = recorder
+
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
@@ -79,8 +85,6 @@ class STTAccumulator:
 
     def _setup_external_mic(self):
         """Open a PyAudio stream for the external USB microphone."""
-        import pyaudio
-
         self._pyaudio = pyaudio.PyAudio()
 
         device_index = None
@@ -109,8 +113,12 @@ class STTAccumulator:
         self._pa_stream.start_stream()
 
     def _pa_callback(self, in_data, frame_count, time_info, status):
-        """PyAudio callback — accumulate and stream live to backend."""
-        import pyaudio
+        """"PyAudio callback — record, accumulate, and stream live to backend."""
+        # Record continuously during the session, including while STT is paused
+        # for the robot's response.
+        if self._recorder is not None:
+            self._recorder.write(in_data)
+
         if self._listening:
             with self._lock:
                 self._audio_buffer.extend(in_data)
@@ -121,11 +129,17 @@ class STTAccumulator:
         return (None, pyaudio.paContinue)
 
     def _on_audio(self, msg):
-        """ROS audio callback — accumulate and stream live to backend."""
+        """ROS audio callback — record, accumulate, and stream live to backend."""
+        chunk = bytes(msg.data)
+
+        # Record continuously during the session, even while STT is paused.
+        if self._recorder is not None:
+            self._recorder.write(chunk)
+
         if self._listening:
-            chunk = bytes(msg.data)
             with self._lock:
                 self._audio_buffer.extend(chunk)
+
             # Stream live to backend for real-time STT
             if self._backend is not None:
                 resampled = self._resample_chunk_to_16k(chunk)
@@ -253,7 +267,6 @@ class STTAccumulator:
         Each dict has: {'index': int, 'name': str, 'sample_rate': int}
         Safe to call before ROS is initialised.
         """
-        import pyaudio
         devices = []
         pa = pyaudio.PyAudio()
         try:
