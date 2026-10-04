@@ -15,7 +15,7 @@ import datetime
 import os
 import queue
 import threading
-import wave
+import soundfile as sf
 
 
 # Recordings are stored here — folder is created automatically, gitignored
@@ -40,7 +40,7 @@ class SessionRecorder:
         """
         self._sample_rate = sample_rate
 
-        self._wav_file = None
+        self._audio_file = None
         self._thread = None
         self._queue = None
         self._state_lock = threading.Lock()
@@ -63,22 +63,26 @@ class SessionRecorder:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             self._output_path = os.path.join(
                 _RECORDINGS_DIR,
-                f"session_{timestamp}.wav",
+                f"session_{timestamp}.flac",
             )
 
-            wav_file = wave.open(self._output_path, "wb")
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)  # 16-bit PCM = 2 bytes per sample
-            wav_file.setframerate(self._sample_rate)
+            audio_file = sf.SoundFile(
+                self._output_path,
+                mode="w",
+                samplerate=self._sample_rate,
+                channels=1,
+                format="FLAC",
+                subtype="PCM_16",
+            )
 
             audio_queue = queue.SimpleQueue()
 
-            self._wav_file = wav_file
+            self._audio_file = audio_file
             self._queue = audio_queue
             self._accepting_audio = True
             self._thread = threading.Thread(
                 target=self._record_loop,
-                args=(wav_file, audio_queue),
+                args=(audio_file, audio_queue),
                 daemon=True,
             )
             self._thread.start()
@@ -117,7 +121,7 @@ class SessionRecorder:
         with self._state_lock:
             self._thread = None
             self._queue = None
-            self._wav_file = None
+            self._audio_file = None
 
         print(f"[SessionRecorder] Recording saved → {self._output_path}")
 
@@ -131,15 +135,16 @@ class SessionRecorder:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _record_loop(wav_file, audio_queue):
-        """Write queued PCM chunks without blocking the capture callback."""
+    def _record_loop(audio_file, audio_queue):
+        """Write queued PCM chunks as lossless FLAC audio."""
         try:
             while True:
                 data = audio_queue.get()
                 if data is _STOP_WRITER:
                     break
 
-                # wave.close() finalises the header at the end.
-                wav_file.writeframesraw(data)
+                # The captured chunks are mono, signed 16-bit PCM.
+                audio_file.buffer_write(data, dtype="int16")
         finally:
-            wav_file.close()
+            # Closing finalises the FLAC stream and file metadata.
+            audio_file.close()
