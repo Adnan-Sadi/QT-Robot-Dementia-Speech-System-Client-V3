@@ -70,7 +70,10 @@ class VoicePreview:
             if not self._stop_event.is_set():
                 if not self._robot.say(self.INTRODUCTION, play_gestures=False):
                     raise RuntimeError("The robot could not speak the introduction.")
-
+            # add a small delay between the introduction and the story
+            if self._stop_event.wait(1.0):
+                return
+            
             while not self._stop_event.is_set():
                 for line in lines:
                     if self._stop_event.is_set():
