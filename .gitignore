@@ -50,6 +50,7 @@ venv.bak/
 
 # session recordings
 recordings/*.wav
+recordings/*.flac
 
 # mypy
 .mypy_cache/
