@@ -12,8 +12,8 @@ It provides a desktop UI for the QT robot operator and connects the robot to a c
 
 1. The operator clicks **Start Chat** — the robot greets the user and starts listening.
 2. The user speaks freely.
-3. The operator clicks **Send** when the user has finished speaking.
-4. The accumulated audio is sent to the backend, which transcribes it and generates a response.
+3. The operator clicks **Send** or presses **Enter** on the main screen when the user has finished speaking.
+4. Send finalizes the streamed audio turn; the backend completes transcription and generates a response.
 5. The robot speaks the response with a matching gesture.
 6. Once the robot finishes speaking, it automatically resumes listening.
 7. When the backend signals the conversation is complete (`chat_ended`), the application closes automatically after a short countdown.
@@ -22,14 +22,18 @@ It provides a desktop UI for the QT robot operator and connects the robot to a c
 
 ## Features
 
-- **Audio streaming to backend** — raw PCM audio is captured locally and streamed to the backend which handles speech-to-text
-- **Manual send button** for user-controlled turn-taking
-- **Always-visible settings panel** on the left side of the main window
-- **Live-adjustable settings** — Adjustable speech speed, volume, and transcript font size during live sessions
-- **Microphone management** — Provides a dropdown to select the audio input device (built-in ReSpeaker or external USB mic). Microphone changes are only applied before starting a new session.
-- **Persistent user settings** — last-used speed, volume, font size, and microphone are saved to a local `user_settings.json` file and restored on the next launch
-- **Session auto-close** — when the backend sends `chat_ended`, the robot finishes speaking, then the application closes with a countdown
-- **Modular architecture** for future backend-controlled robot actions (gestures, emotions, movement)
+- **Audio streaming to backend** — microphone audio is streamed to the backend, which handles speech-to-text.
+- **Simple conversation screen** — a large circular Send button is the main focus; settings and transcript text are hidden initially.
+- **Separate settings screen** — open Settings from the toolbar and return using Back to conversation.
+- **Keyboard shortcuts** — Enter sends from the main screen; arrow keys adjust volume and speech speed from either screen.
+- **Try my voice** — test speed and volume before a conversation using a repeating local story.
+- **Live speech adjustments** — adjust speed and volume using sliders, buttons, or keyboard shortcuts.
+- **Collapsible transcript** — reveal the latest robot response when needed and adjust its text size directly in the transcript header.
+- **Microphone management** — select the built-in ReSpeaker or an external microphone before starting a session.
+- **Optional microphone recording** — save microphone input to timestamped FLAC files in `recordings/`.
+- **Persistent preferences** — microphone selection, speed, volume, transcript text size, and recording preference are saved in `user_settings.json`.
+- **Session auto-close** — after the final response, the application saves preferences and closes following a countdown.
+- **Modular architecture** — separate services handle backend communication, robot actions, recording, and voice preview.
 
 ---
 
@@ -41,29 +45,36 @@ QT-Robot-Dementia-Speech-System-Client-V3/
 ├── launch.sh                        # Double-clickable desktop launcher
 ├── requirements.txt
 ├── README.md
-├── .env                             # Your local config (gitignored)
-├── .env.example                     # Template for .env
-├── user_settings.json               # Auto-generated; persists UI settings (gitignored)
+├── .env                             # Local configuration (gitignored)
+├── .env.example                     # Environment configuration template
+├── user_settings.json               # Auto-generated saved preferences
+│
+├── assets/
+│   └── voice_preview_story.txt       # Editable story for voice setup
+│
+├── recordings/                      # Created when microphone recording starts
 │
 ├── config/
-│   ├── settings.py                  # Loads environment variables into a Settings object
-│   └── user_settings.py             # Loads/saves user_settings.json; resolves mic index by name
+│   ├── settings.py                  # Environment defaults and UI configuration
+│   └── user_settings.py             # Preference persistence and mic resolution
 │
 ├── controllers/
-│   └── chat_controller.py           # Orchestrates the turn-taking session lifecycle
+│   └── chat_controller.py           # Coordinates conversations and voice preview
 │
 ├── services/
-│   ├── backend_client.py            # Backend auth + WebSocket client (BackendBridge)
+│   ├── backend_client.py            # Backend authentication and WebSocket client
 │   ├── event_bus.py                 # Thread-safe UI/service event queue
-│   ├── robot_actions.py             # QT Robot speech / gesture / emotion ROS wrappers
-│   └── stt_accumulator.py           # Captures raw PCM audio; resamples for backend
+│   ├── robot_actions.py             # Robot speech, gesture, and emotion wrappers
+│   ├── session_recorder.py          # Records microphone input to FLAC
+│   ├── stt_accumulator.py           # Captures and streams microphone audio
+│   └── voice_preview.py             # Repeating story and preview cancellation
 │
 └── ui/
-    ├── app.py                       # Main application window (MainWindow)
+    ├── app.py                       # Conversation/settings navigation and shortcuts
     └── widgets/
-        ├── settings_panel.py        # Left-side settings panel (always visible)
-        ├── transcript_panel.py      # Scrollable robot response transcript
-        └── status_bar.py            # Bottom status bar
+        ├── settings_panel.py        # Scrollable settings and voice-preview controls
+        ├── transcript_panel.py      # Latest response and compact text-size controls
+        └── status_bar.py            # Status and error messages
 ```
 
 ---
@@ -111,6 +122,7 @@ cp .env.example .env
 | `MIC_DEVICE_INDEX` | | PyAudio device index for external mic. This can be set manually but is not needed with the new versions as the app resolves by name automatically after first use |
 | `SPEECH_SPEED` | | Robot speech speed (default: `90`) |
 | `SPEECH_VOLUME` | | Robot speaker volume 0–100 (default: `80`) |
+| `TRANSCRIPT_FONT_SIZE` | | Initial transcript text size, 10–50 (default: `16`); saved preferences override this value |
 | `GREETING_TEXT` | | Text spoken at the start of each session |
 | `LLM_TIMEOUT` | | Backend response timeout in seconds (default: `25.0`) |
 | `EMOTION_LISTENING` | | Comma-separated QT emotion names shown while listening |
@@ -264,6 +276,13 @@ cd ~/catkin_ws/src/qt_dss_app/src/QT-Robot-Dementia-Speech-System-Client-V3/
 git restore .
 ```
 
+- (Optional) Change to the branch you want to pull updates from (if not `main`):
+```bash
+git checkout branch_name
+```
+
+ Replace `branch_name` with the actual branch name you want to pull from. Change branch_name to `main` if you want to switch to the main branch.
+
 - Pull the latest changes:
 ```bash
 git pull
@@ -298,25 +317,51 @@ python3 main.py
 
 ## Using the Application
 
-Once the window opens:
+### Prepare the robot's voice
 
-1. Adjust settings in the left panel if needed (microphone, speech speed, volume, font size)
-2. Click **▶ Start Chat** — the robot will greet the user and begin listening
-3. The user speaks
-4. Click **Send** when the user finishes speaking
-5. Wait for the robot to respond — the response appears in the transcript panel
-6. The robot automatically resumes listening after responding
-7. Click **■ Stop Chat** at any time to end the session manually
-8. The session ends automatically when the backend signals the conversation is complete
+1. Click **Settings** in the top toolbar.
+2. Select the microphone and click **Apply** if changing it.
+3. Choose whether to save microphone audio using **Save conversation audio**.
+4. Click **Try my voice** to hear the robot while adjusting Volume and Speed.
+5. Click **Finish voice setup** when satisfied.
+6. Click **Back to conversation** to return to the main screen.
+
+Voice preview runs locally without starting a backend conversation, microphone capture, or recording. Speed and volume can be adjusted using the sliders, +/− buttons, or arrow keys.
+
+Finishing voice setup or returning to the main screen lets the current sentence finish before stopping. Start Chat remains unavailable until the previous activity finishes.
+
+To customize the story, edit `assets/voice_preview_story.txt`. Each nonempty line is spoken separately. Keep sentences short so adjustments and stopping remain responsive.
+
+### Start a conversation
+
+1. Click **Start Chat**. The robot greets the user and starts listening.
+2. The user speaks; microphone audio streams to the backend.
+3. Click the circular **Send** button or press **Enter** on the main screen when the user finishes speaking.
+4. Wait while the robot thinks and responds. Send is unavailable during this time.
+5. The robot automatically resumes listening after responding.
+6. Open **Settings** if needed during the conversation, or use arrow keys to adjust speech.
+7. Click **Stop Chat** to end the session manually. Listening stops, and outstanding speech finishes before cleanup completes.
+8. When the backend completes the conversation, the robot finishes its final response and the application closes after a countdown.
+
+### Keyboard shortcuts
+
+| Key | Action | Available on |
+|---|---|---|
+| Enter / keypad Enter | Send when the Send button is enabled | Main screen |
+| ↑ | Increase volume by 5 | Main and settings screens |
+| ↓ | Decrease volume by 5 | Main and settings screens |
+| → | Increase speech speed by 5 | Main and settings screens |
+| ← | Decrease speech speed by 5 | Main and settings screens |
 
 ### Settings panel
 
 | Setting | Description |
 |---|---|
-| **Microphone** | Select the audio input device. Click **Apply Microphone** to activate the change (this restarts the audio stream) |
-| **Speed** | Robot speech speed. Changes apply immediately |
-| **Volume** | Robot speaker volume. Changes apply immediately |
-| **Font size** | Transcript panel text size. Changes apply immediately |
+| **Microphone** | Select an input device and click **Apply**. The selection is used when the next session starts. |
+| **Save conversation audio** | Save microphone input as a timestamped FLAC file in `recordings/`. |
+| **Speed** | Adjust robot speech speed from 50–120. |
+| **Volume** | Adjust speaker volume from 0–100. |
+| **Try my voice** | Hear a repeating story while adjusting speed and volume before a conversation. |
 
 All settings (except microphone) are applied live without needing to click any button. Settings are saved automatically and restored on the next launch.
 
@@ -331,7 +376,7 @@ User starts speaking
                     └─► final results  → stage_and_schedule()
                                            └─► audio_done=False → hold stt_staged
 
-User clicks Send
+User clicks Send or presses Enter
   └─► pause_listening()  [stop accumulating]
   └─► reset_stt_staged_event()
   └─► send_audio_done()  → backend sets _audio_done=True
