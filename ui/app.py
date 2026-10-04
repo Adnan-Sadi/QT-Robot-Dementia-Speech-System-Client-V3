@@ -83,9 +83,12 @@ class MainWindow(ctk.CTk):
         # ── Send button (centred, large) ──
         send_frame = ctk.CTkFrame(self._main_screen, fg_color="transparent")
         send_frame.grid(row=0, column=0, sticky="nsew")
+        # Center the Send button and its keyboard reminder together
+        send_group = ctk.CTkFrame(send_frame, fg_color="transparent")
+        send_group.place(relx=0.5, rely=0.5, anchor="center")
 
         self._send_btn = ctk.CTkButton(
-            send_frame, text="Send", width=220, height=220, corner_radius=110,
+            send_group, text="Send", width=180, height=180, corner_radius=90,
             font=("", 32, "bold"),
             fg_color="#9333EA",             # Bright purple background
             hover_color="#7E22CE",          # Slightly darker purple when hovered
@@ -94,7 +97,15 @@ class MainWindow(ctk.CTk):
             command=self._on_send,
             state="disabled",
         )
-        self._send_btn.place(relx=0.5, rely=0.5, anchor="center")
+        self._send_btn.grid(row=0, column=0)
+
+        ctk.CTkLabel(
+            send_group,
+            text="Press Enter to send",
+            font=("", 16),
+            text_color=("gray35", "gray70"),
+        ).grid(row=1, column=0, pady=(10, 0))
+
         send_frame.bind("<Configure>", self._resize_send)
 
         self._transcript = None
@@ -125,6 +136,10 @@ class MainWindow(ctk.CTk):
         # Save settings when the window is closed
         self.protocol("WM_DELETE_WINDOW", self._on_window_close)
 
+        # Keyboard shortcuts for the main conversation screen
+        for key in ("Return", "KP_Enter", "Up", "Down", "Left", "Right"):
+            self.bind(f"<{key}>", self._on_main_key, add="+")
+
     # ------------------------------------------------------------------
     # Button handlers
     # ------------------------------------------------------------------
@@ -145,6 +160,37 @@ class MainWindow(ctk.CTk):
             self._listening = False
         self._refresh_controls()
 
+    def _on_main_key(self, event):
+        """Handle conversation shortcuts only on the main screen."""
+        if (
+            self._settings_visible
+            or self._closing
+            or self._auto_closing
+            or self.grab_current() is not None
+        ):
+            return
+
+        if event.keysym in ("Return", "KP_Enter"):
+            if self._send_btn.cget("state") == "normal":
+                self._on_send()
+
+        elif event.keysym == "Up":
+            self._settings.adjust_volume(5)
+
+        elif event.keysym == "Down":
+            self._settings.adjust_volume(-5)
+
+        elif event.keysym == "Right":
+            self._settings.adjust_speed(5)
+
+        elif event.keysym == "Left":
+            self._settings.adjust_speed(-5)
+
+        else:
+            return
+
+        return "break"
+
     def _show_settings(self):
         self._settings_visible = True
         self._settings_screen.tkraise()
@@ -155,11 +201,12 @@ class MainWindow(ctk.CTk):
         self._settings.save_current_settings()
         self._settings_visible = False
         self._main_screen.tkraise()
+        self.focus_set()
         self._refresh_controls()
 
     def _resize_send(self, event):
         # Keep the circle visible when the transcript is open or the window is small.
-        diameter = min(220, max(100, min(event.width, event.height) - 24))
+        diameter = min(220, max(100, min(event.width - 24, event.height - 64)))
         self._send_btn.configure(
             width=diameter, height=diameter, corner_radius=diameter // 2,
             font=("", max(18, diameter // 7), "bold"),

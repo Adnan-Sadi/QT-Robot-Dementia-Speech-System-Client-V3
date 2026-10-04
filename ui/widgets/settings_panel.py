@@ -92,7 +92,17 @@ class SettingsPanel(ctk.CTkScrollableFrame):
         self._record_switch.grid(row=0, column=0, sticky="w")
 
         # Speed slider (live) — max capped at 120
-        ctk.CTkLabel(self, text="Speed:", font=("", 18)).grid(row=6, column=0, sticky="w", padx=16, pady=2)
+        speed_heading = ctk.CTkFrame(self, fg_color="transparent")
+        speed_heading.grid(row=6, column=0, sticky="ew", padx=16, pady=2)
+
+        ctk.CTkLabel(speed_heading, text="Speed:", font=("", 18)).pack(side="left")
+        ctk.CTkLabel(
+            speed_heading,
+            text="Main screen: ← slower · → faster",
+            font=("", 14),
+            text_color=("gray35", "gray70"),
+        ).pack(side="left", padx=(12, 0))
+
         self._speed_var = ctk.IntVar(value=settings.SPEECH_SPEED)
         self._make_slider_row(
             parent_row=7,
@@ -104,7 +114,17 @@ class SettingsPanel(ctk.CTkScrollableFrame):
         )
 
         # Volume slider (live) — QT robot hardware caps at 100
-        ctk.CTkLabel(self, text="Volume:", font=("", 18)).grid(row=8, column=0, sticky="w", padx=16, pady=2)
+        volume_heading = ctk.CTkFrame(self, fg_color="transparent")
+        volume_heading.grid(row=8, column=0, sticky="ew", padx=16, pady=2)
+        ctk.CTkLabel(volume_heading, text="Volume:", font=("", 18)).pack(side="left")
+
+        ctk.CTkLabel(
+            volume_heading,
+            text="Main screen: ↑ louder · ↓ quieter",
+            font=("", 14),
+            text_color=("gray35", "gray70"),
+        ).pack(side="left", padx=(12, 0))
+        
         self._vol_var = ctk.IntVar(value=getattr(settings, 'SPEECH_VOLUME', 80))
         self._make_slider_row(
             parent_row=9,
@@ -191,6 +211,14 @@ class SettingsPanel(ctk.CTkScrollableFrame):
         new_val = max(from_, min(to, var.get() + delta))
         var.set(new_val)
         on_change(new_val)
+
+    def adjust_volume(self, delta: int):
+        """Adjust volume using the existing slider and live callback."""
+        self._step_slider(self._vol_var, delta, 0, 100, self._on_volume_change)
+
+    def adjust_speed(self, delta: int):
+        """Adjust speech speed using the existing slider and live callback."""
+        self._step_slider(self._speed_var, delta, 50, 120, self._on_speed_change)
 
     # ------------------------------------------------------------------
     # Live change callbacks
