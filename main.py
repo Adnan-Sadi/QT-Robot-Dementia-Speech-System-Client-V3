@@ -35,6 +35,7 @@ def main():
     win.mainloop()
 
     # Cleanup on exit
+    controller.stop_voice_preview()
     if controller.is_session_active():
         controller.stop_session()
 

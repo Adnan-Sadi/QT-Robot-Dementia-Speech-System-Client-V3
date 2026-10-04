@@ -95,7 +95,11 @@ class RobotActions:
         except rospy.ServiceException as e:
             rospy.logerr(f"Set volume failed: {e}")
 
-    def say(self, text, emotion="neutral"):
+    def speech_available(self):
+        """Whether the robot speech service was initialized."""
+        return self._behavior_talk_service is not None
+
+    def say(self, text, emotion="neutral", play_gestures=True):
         """
         Make the robot speak with a matching gesture.
         Blocks until speech is complete - the controller uses this to know
@@ -103,11 +107,11 @@ class RobotActions:
         """
         if not self._behavior_talk_service:
             print(f"Speech Service not initialized or say() was called (no-op in UI-only mode): '{text}'")
-            return
+            return False
 
         # Play gesture in background
         gesture_name = self._gesture_for_mood(emotion)
-        if gesture_name:
+        if play_gestures and gesture_name:
             threading.Thread(target=self._play_gesture, args=(gesture_name,), daemon=True).start()
 
         # Speak (blocking)
@@ -117,8 +121,10 @@ class RobotActions:
             resp = self._behavior_talk_service(req)
             if not resp.status:
                 rospy.logwarn("Speech service call returned failure status.")
+            return bool(resp.status)
         except rospy.ServiceException as e:
             rospy.logerr(f"Speech service failed: {e}")
+            return False
 
     # ------------------------------------------------------------------
     # Emotions & Gestures

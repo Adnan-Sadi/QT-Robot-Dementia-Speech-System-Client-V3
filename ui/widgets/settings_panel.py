@@ -4,10 +4,9 @@ from config.settings import settings
 from services.stt_accumulator import STTAccumulator
 from config.user_settings import save_user_settings
 
-
-class SettingsPanel(ctk.CTkFrame):
+class SettingsPanel(ctk.CTkScrollableFrame):
     """
-    An always-visible settings panel displayed on the left side of the main window.
+    A scrollable settings panel displayed on the settings screen.
     Allows adjusting microphone, speech speed, volume, and text size.
     Speed, volume, and font size changes are applied live (no Apply button needed).
     Microphone changes require pressing 'Apply Microphone' to take effect.
@@ -116,19 +115,35 @@ class SettingsPanel(ctk.CTkFrame):
             on_change=self._on_volume_change,
         )
 
-        # ── Section: Text Size ──
-        ctk.CTkLabel(self, text="Text Size", font=("", 18)).grid(
-            row=10, column=0, sticky="w", padx=16, pady=(8, 2)
+        if settings.ENABLE_TRANSCRIPT:
+            # ── Section: Text Size ──
+            ctk.CTkLabel(self, text="Text Size", font=("", 18)).grid(
+                row=10, column=0, sticky="w", padx=16, pady=(8, 2)
+            )
+            self._font_size_var = ctk.IntVar(value=getattr(settings, 'TRANSCRIPT_FONT_SIZE', 13))
+            self._make_slider_row(
+                parent_row=12,
+                var=self._font_size_var,
+                from_=10, to=50,
+                number_of_steps=40,
+                step=2,
+                on_change=self._on_font_size_change,
+            )
+
+        # ── Section: Voice preview ──
+        ctk.CTkLabel(self, text="Try my voice", font=("", 20, "bold")).grid(
+            row=13, column=0, sticky="w", padx=16, pady=(16, 4)
         )
-        self._font_size_var = ctk.IntVar(value=getattr(settings, 'TRANSCRIPT_FONT_SIZE', 13))
-        self._make_slider_row(
-            parent_row=12,
-            var=self._font_size_var,
-            from_=10, to=50,
-            number_of_steps=40,
-            step=2,
-            on_change=self._on_font_size_change,
+        ctk.CTkLabel(
+            self,
+            text="Adjust Volume and Speed while I tell a story.",
+            font=("", 16), wraplength=430, justify="left",
+        ).grid(row=14, column=0, sticky="w", padx=16, pady=(0, 8))
+        self._preview_btn = ctk.CTkButton(
+            self, text="Try my voice", height=44, font=("", 18, "bold"),
+            command=self._on_voice_preview,
         )
+        self._preview_btn.grid(row=15, column=0, sticky="ew", padx=16, pady=(0, 16))
 
     # ------------------------------------------------------------------
     # Slider row builder
@@ -325,3 +340,19 @@ class SettingsPanel(ctk.CTkFrame):
             except Exception:
                 pass
             self._tooltip = None
+
+    def _on_voice_preview(self):
+        if self._controller.is_voice_preview_active():
+            self._controller.stop_voice_preview()
+        else:
+            self._controller.start_voice_preview()
+
+    def set_voice_preview_state(self, active, stopping, available, locked=False):
+        if stopping:
+            text, state = "Finishing this sentence...", "disabled"
+        elif active:
+            text, state = "Finish voice setup", "normal"
+        else:
+            text = "Try my voice"
+            state = "normal" if available else "disabled"
+        self._preview_btn.configure(text=text, state="disabled" if locked else state)
