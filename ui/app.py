@@ -136,7 +136,7 @@ class MainWindow(ctk.CTk):
         # Save settings when the window is closed
         self.protocol("WM_DELETE_WINDOW", self._on_window_close)
 
-        # Keyboard shortcuts for the main conversation screen
+        # Keyboard shortcuts for the conversation and settings screens
         for key in ("Return", "KP_Enter", "Up", "Down", "Left", "Right"):
             self.bind(f"<{key}>", self._on_main_key, add="+")
 
@@ -162,16 +162,12 @@ class MainWindow(ctk.CTk):
 
     def _on_main_key(self, event):
         """Handle conversation shortcuts only on the main screen."""
-        if (
-            self._settings_visible
-            or self._closing
-            or self._auto_closing
-            or self.grab_current() is not None
-        ):
+        if self._closing or self._auto_closing or self.grab_current() is not None:
             return
 
         if event.keysym in ("Return", "KP_Enter"):
-            if self._send_btn.cget("state") == "normal":
+            # Only send if the Send button is enabled and the settings panel is not visible
+            if self._send_btn.cget("state") == "normal" and not self._settings_visible:
                 self._on_send()
 
         elif event.keysym == "Up":
@@ -194,6 +190,7 @@ class MainWindow(ctk.CTk):
     def _show_settings(self):
         self._settings_visible = True
         self._settings_screen.tkraise()
+        self.focus_set()
         self._refresh_controls()
 
     def _show_main(self):

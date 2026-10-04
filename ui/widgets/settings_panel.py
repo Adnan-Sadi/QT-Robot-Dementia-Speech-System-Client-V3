@@ -7,8 +7,8 @@ from config.user_settings import save_user_settings
 class SettingsPanel(ctk.CTkScrollableFrame):
     """
     A scrollable settings panel displayed on the settings screen.
-    Allows adjusting microphone, speech speed, volume, and text size.
-    Speed, volume, and font size changes are applied live (no Apply button needed).
+    Allows adjusting microphone, speech speed, and volume.
+    Speed and volume changes are applied live (no Apply button needed).
     Microphone changes require pressing 'Apply Microphone' to take effect.
     Settings are persisted to disk on window close (not on every slider move).
     """
@@ -98,7 +98,7 @@ class SettingsPanel(ctk.CTkScrollableFrame):
         ctk.CTkLabel(speed_heading, text="Speed:", font=("", 18)).pack(side="left")
         ctk.CTkLabel(
             speed_heading,
-            text="Main screen: ← slower · → faster",
+            text="← slower · → faster",
             font=("", 14),
             text_color=("gray35", "gray70"),
         ).pack(side="left", padx=(12, 0))
@@ -120,11 +120,11 @@ class SettingsPanel(ctk.CTkScrollableFrame):
 
         ctk.CTkLabel(
             volume_heading,
-            text="Main screen: ↑ louder · ↓ quieter",
+            text="↑ louder · ↓ quieter",
             font=("", 14),
             text_color=("gray35", "gray70"),
         ).pack(side="left", padx=(12, 0))
-        
+
         self._vol_var = ctk.IntVar(value=getattr(settings, 'SPEECH_VOLUME', 80))
         self._make_slider_row(
             parent_row=9,
@@ -134,21 +134,6 @@ class SettingsPanel(ctk.CTkScrollableFrame):
             step=10,
             on_change=self._on_volume_change,
         )
-
-        if settings.ENABLE_TRANSCRIPT:
-            # ── Section: Text Size ──
-            ctk.CTkLabel(self, text="Text Size", font=("", 18)).grid(
-                row=10, column=0, sticky="w", padx=16, pady=(8, 2)
-            )
-            self._font_size_var = ctk.IntVar(value=getattr(settings, 'TRANSCRIPT_FONT_SIZE', 13))
-            self._make_slider_row(
-                parent_row=12,
-                var=self._font_size_var,
-                from_=10, to=50,
-                number_of_steps=40,
-                step=2,
-                on_change=self._on_font_size_change,
-            )
 
         # ── Section: Voice preview ──
         ctk.CTkLabel(self, text="Try my voice", font=("", 20, "bold")).grid(
@@ -247,14 +232,6 @@ class SettingsPanel(ctk.CTkScrollableFrame):
             speech_speed=None,
             volume=volume,
         )
-
-    def _on_font_size_change(self, value):
-        """Apply font size immediately as the slider moves. Does not save to disk."""
-        size = int(value)
-        self._font_size_var._label.configure(text=str(size))
-        settings.TRANSCRIPT_FONT_SIZE = size
-        # Use the direct MainWindow reference — avoids the CTkFrame master chain issue
-        self._main_window.set_transcript_font_size(size)
 
     # ------------------------------------------------------------------
     # Microphone apply (requires stream restart — kept behind a button)
