@@ -276,17 +276,17 @@ cd ~/catkin_ws/src/qt_dss_app/src/QT-Robot-Dementia-Speech-System-Client-V3/
 git restore .
 ```
 
-- (Optional) Change to the branch you want to pull updates from (if not `main`):
-```bash
-git checkout branch_name
-```
-
- Replace `branch_name` with the actual branch name you want to pull from. Change branch_name to `main` if you want to switch to the main branch.
-
 - Pull the latest changes:
 ```bash
 git pull
 ```
+
+- (Optional) Changing to a particular branch (if not using `main`):
+```bash
+git checkout branch_name
+```
+
+Replace `branch_name` with the actual branch name you want to switch to. Change branch_name to `main` if you want to switch back ßto the main branch.
 
 - Make the launcher script executable again (since it was restored):
 ```bash
