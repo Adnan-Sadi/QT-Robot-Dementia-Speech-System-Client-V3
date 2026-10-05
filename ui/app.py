@@ -62,7 +62,9 @@ class MainWindow(ctk.CTk):
         self._main_screen = ctk.CTkFrame(content_frame, fg_color="transparent")
         self._main_screen.grid(row=0, column=0, sticky="nsew")
         self._main_screen.grid_columnconfigure(0, weight=1)
-        self._main_screen.grid_rowconfigure(0, weight=1)
+         # Share available height between Send and the expanded transcript.
+        self._main_screen.grid_rowconfigure(0, weight=3, uniform="conversation")
+        self._main_screen.grid_rowconfigure(2, weight=0)
 
         self._settings_screen = ctk.CTkFrame(content_frame, fg_color="transparent")
         self._settings_screen.grid(row=0, column=0, sticky="nsew")
@@ -119,8 +121,7 @@ class MainWindow(ctk.CTk):
             self._transcript_btn.grid(row=1, column=0, pady=(4, 8))
 
             self._transcript = TranscriptPanel(self._main_screen)
-            self._transcript.configure(height=180)
-            self._transcript.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+            self._transcript.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
             self._transcript.grid_propagate(False)
             self._transcript.grid_remove()
 
@@ -214,10 +215,12 @@ class MainWindow(ctk.CTk):
             return
         self._transcript_visible = not self._transcript_visible
         if self._transcript_visible:
+            self._main_screen.grid_rowconfigure(2, weight=2, uniform="conversation")
             self._transcript.grid()
             self._transcript_btn.configure(text="Hide transcript")
         else:
             self._transcript.grid_remove()
+            self._main_screen.grid_rowconfigure(2, weight=0, uniform="")
             self._transcript_btn.configure(text="Show transcript")
 
     def _refresh_controls(self):
