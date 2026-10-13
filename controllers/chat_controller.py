@@ -7,6 +7,7 @@ from services.stt_accumulator import STTAccumulator
 from services.session_recorder import SessionRecorder
 from services.robot_actions import RobotActions
 from services.voice_preview import VoicePreview
+from services.manual_recorder import ManualRecorder
 from config.settings import settings
 
 
@@ -34,7 +35,9 @@ class ChatController:
         self._chat_idle = threading.Event()
         self._chat_idle.set()
         self._session_stopping = False
+
         self._voice_preview = VoicePreview(robot, bus)
+        self._manual_recorder = ManualRecorder(bus)
 
         # backend llm_responses are handled here
         self._backend.set_response_callback(self._on_llm_response_received)
@@ -51,6 +54,7 @@ class ChatController:
                 or self._session_stopping
                 or self._chat_workers > 0
                 or self._voice_preview.is_active()
+                or self._manual_recorder.is_active()
             )
 
     def is_session_stopping(self):
@@ -72,6 +76,22 @@ class ChatController:
 
     def stop_voice_preview(self):
         self._voice_preview.stop()
+    
+    def is_manual_recording_active(self):
+        return self._manual_recorder.is_active()
+
+    def is_manual_recording_stopping(self):
+        return self._manual_recorder.is_stopping()
+
+    def start_manual_recording(self):
+        with self._activity_lock:
+            if self.is_busy():
+                self._bus.publish("error", "Please finish the current activity first.")
+                return False
+            return self._manual_recorder.start()
+
+    def stop_manual_recording(self):
+        self._manual_recorder.stop()
 
     def _start_chat_worker(self, target, args=()):
         """Track workers so preview cannot overlap unfinished chat work."""

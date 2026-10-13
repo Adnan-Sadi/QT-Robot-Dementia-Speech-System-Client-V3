@@ -1,7 +1,7 @@
 """
-SessionRecorder — lightweight WAV recording of the user's microphone input.
+SessionRecorder — lightweight FLAC recording of the user's microphone input.
 
-Receives PCM audio captured by STTAccumulator and writes it to a WAV file
+Receives PCM audio captured by STTAccumulator and writes it to FLAC file
 in the /recordings folder.
 
 Usage:
@@ -16,6 +16,7 @@ import os
 import queue
 import threading
 import soundfile as sf
+from typing import Optional
 
 
 # Recordings are stored here — folder is created automatically, gitignored
@@ -28,7 +29,7 @@ _STOP_WRITER = object()
 
 class SessionRecorder:
     """
-    Writes microphone audio chunks to a timestamped WAV file.
+    Writes microphone audio chunks to a timestamped FLAC file.
 
     Audio is written on a background thread so the PyAudio or ROS audio
     callback is never blocked by disk I/O.
@@ -45,25 +46,28 @@ class SessionRecorder:
         self._queue = None
         self._state_lock = threading.Lock()
         self._accepting_audio = False
-        self._output_path = None
+        self._output_path: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def start(self):
-        """Open a WAV file and start the background writer."""
+    def start(self, manual: bool = False):
+        """Open a flac file and start the background writer."""
         with self._state_lock:
             if self._thread and self._thread.is_alive():
                 print("[SessionRecorder] Already recording — ignoring start().")
                 return
 
-            os.makedirs(_RECORDINGS_DIR, exist_ok=True)
+            recordings_dir = os.path.join(_RECORDINGS_DIR, "manual") if manual else _RECORDINGS_DIR
+            os.makedirs(recordings_dir, exist_ok=True)
 
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp_format = "%Y%m%d_%H%M%S_%f" if manual else "%Y%m%d_%H%M%S"
+            timestamp = datetime.datetime.now().strftime(timestamp_format)
+            prefix = "manual" if manual else "session"
             self._output_path = os.path.join(
-                _RECORDINGS_DIR,
-                f"session_{timestamp}.flac",
+                recordings_dir,
+                f"{prefix}_{timestamp}.flac",
             )
 
             audio_file = sf.SoundFile(
@@ -105,7 +109,7 @@ class SessionRecorder:
             self._queue.put(pcm_bytes)
 
     def stop(self):
-        """Stop accepting audio and finalise the WAV file."""
+        """Stop accepting audio and finalise the FLAC file."""
         with self._state_lock:
             if not self._accepting_audio or self._thread is None:
                 return
@@ -114,7 +118,7 @@ class SessionRecorder:
             thread = self._thread
             self._queue.put(_STOP_WRITER)
 
-        # Wait until every queued chunk has been written and the WAV header
+        # Wait until every queued chunk has been written and the FLAC header
         # has been finalised.
         thread.join()
 

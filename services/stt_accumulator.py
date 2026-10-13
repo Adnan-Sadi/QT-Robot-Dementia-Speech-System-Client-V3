@@ -39,7 +39,7 @@ class STTAccumulator:
         self._audio_sub = None
 
         self._backend = backend          # BackendBridge — for sending audio on Send click
-        self._recorder = None            # SessionRecorder — for saving WAV files of the session
+        self._recorder = None            # SessionRecorder — for saving audio files of the session
         self._audio_buffer = bytearray() # Raw PCM accumulation for backend audio sending
 
         # Emotion service for listening feedback

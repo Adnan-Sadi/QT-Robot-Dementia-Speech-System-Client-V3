@@ -228,10 +228,13 @@ class MainWindow(ctk.CTk):
         stopping = self._controller.is_session_stopping()
         preview = self._controller.is_voice_preview_active()
         preview_stopping = self._controller.is_voice_preview_stopping()
+        manual = self._controller.is_manual_recording_active()
+        manual_stopping = self._controller.is_manual_recording_stopping()
         busy = self._controller.is_busy()
         locked = self._closing or self._auto_closing
         state = (
-            active, stopping, preview, preview_stopping, busy, locked,
+            active, stopping, preview, preview_stopping,
+            manual, manual_stopping, busy, locked,
             self._listening, self._settings_visible,
         )
         if state == self._last_control_state:
@@ -247,7 +250,13 @@ class MainWindow(ctk.CTk):
             state="disabled" if self._settings_visible or locked else "normal"
         )
         self._back_btn.configure(state="disabled" if locked else "normal")
-        self._settings.set_session_active(active or stopping)
+        self._settings.set_session_active(active or stopping or manual)
+        self._settings.set_manual_recording_state(
+            active=manual,
+            stopping=manual_stopping,
+            available=not busy and not locked,
+            locked=locked,
+        )
         self._settings.set_voice_preview_state(
             active=preview,
             stopping=preview_stopping,
@@ -267,6 +276,7 @@ class MainWindow(ctk.CTk):
         if self._closing:
             return
         self._closing = True
+        self._controller.stop_manual_recording()
         self._settings.save_current_settings()
         self._controller.stop_voice_preview()
         if self._controller.is_session_active():
@@ -367,6 +377,10 @@ class MainWindow(ctk.CTk):
                 self._status.set(ev.text)
                 if ev.data.get("state") in ("idle", "error"):
                     self._settings.save_current_settings()
+
+            elif kind == "manual_recording":
+                self._error_active = ev.data.get("state") == "error"
+                self._status.set(ev.text)
 
             elif kind == "chat_ended":
                 # Robot has finished its final utterance — reset UI state and begin countdown

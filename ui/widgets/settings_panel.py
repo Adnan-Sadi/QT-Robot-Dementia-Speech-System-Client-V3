@@ -137,18 +137,35 @@ class SettingsPanel(ctk.CTkScrollableFrame):
 
         # ── Section: Voice preview ──
         ctk.CTkLabel(self, text="Try my voice", font=("", 20, "bold")).grid(
-            row=13, column=0, sticky="w", padx=16, pady=(16, 4)
+            row=10, column=0, sticky="w", padx=16, pady=(16, 4)
         )
         ctk.CTkLabel(
             self,
             text="Adjust Volume and Speed while I tell a story.",
             font=("", 16), wraplength=430, justify="left",
-        ).grid(row=14, column=0, sticky="w", padx=16, pady=(0, 8))
+        ).grid(row=11, column=0, sticky="w", padx=16, pady=(0, 8))
         self._preview_btn = ctk.CTkButton(
             self, text="Try my voice", height=44, font=("", 18, "bold"),
             command=self._on_voice_preview,
         )
-        self._preview_btn.grid(row=15, column=0, sticky="ew", padx=16, pady=(0, 16))
+        self._preview_btn.grid(row=12, column=0, sticky="ew", padx=16, pady=(0, 16))
+
+        # ── Section: Manual recording ──
+        ctk.CTkLabel(self, text="Manual recording", font=("", 20, "bold")).grid(
+            row=13, column=0, sticky="w", padx=16, pady=(16, 4)
+        )
+        ctk.CTkLabel(
+            self,
+            text="Manually record on the robot using the selected microphone.",
+            font=("", 16), wraplength=500, justify="left",
+        ).grid(row=14, column=0, sticky="w", padx=16, pady=(0, 8))
+        self._manual_record_btn = ctk.CTkButton(
+            self, text="Start manual recording", height=44, font=("", 18, "bold"),
+            command=self._on_manual_recording,
+        )
+        self._manual_record_fg_color = self._manual_record_btn.cget("fg_color")
+        self._manual_record_hover_color = self._manual_record_btn.cget("hover_color")
+        self._manual_record_btn.grid(row=15, column=0, sticky="ew", padx=16, pady=(0, 16))
 
     # ------------------------------------------------------------------
     # Slider row builder
@@ -283,8 +300,11 @@ class SettingsPanel(ctk.CTkScrollableFrame):
         if settings.MIC_SOURCE != "external":
             return self._ROS_MIC_LABEL
         # Try to match by device index
-        current_index = settings.MIC_DEVICE_INDEX
-        current_index = int(current_index) if current_index is not None else None
+        current_index = (
+            int(settings.MIC_DEVICE_INDEX)
+            if settings.MIC_DEVICE_INDEX is not None
+            else None
+        )
         if current_index is not None:
             for d in self._devices:
                 if d['index'] == current_index:
@@ -299,13 +319,14 @@ class SettingsPanel(ctk.CTkScrollableFrame):
     def set_session_active(self, active: bool):
         """
         Disable mic and recording controls while a session is running.
+        Also locks these controls during manual recording.
         Re-enables them when the session ends.
         Called by MainWindow on Start/Stop Chat.
         """
         state = "disabled" if active else "normal"
         tooltip_text = (
-            "Cannot be changed during an active session.\n"
-            "Please stop the current session first."
+            "Cannot be changed while the microphone is in use.\n"
+            "Please stop the current activity first."
         )
 
         self._mic_dropdown.configure(state=state)
@@ -345,6 +366,30 @@ class SettingsPanel(ctk.CTkScrollableFrame):
             except Exception:
                 pass
             self._tooltip = None
+
+    def _on_manual_recording(self):
+        if self._controller.is_manual_recording_active():
+            self._controller.stop_manual_recording()
+        else:
+            self._controller.start_manual_recording()
+        self._main_window._refresh_controls()
+
+    def set_manual_recording_state(self, active, stopping, available, locked=False):
+        if stopping:
+            text, state = "Saving recording...", "disabled"
+        elif active:
+            text, state = "Stop manual recording", "normal"
+        else:
+            text = "Start manual recording"
+            state = "normal" if available else "disabled"
+
+        recording = active or stopping
+        self._manual_record_btn.configure(
+            text=text,
+            state="disabled" if locked else state,
+            fg_color="#B91C1C" if recording else self._manual_record_fg_color,
+            hover_color="#7F1D1D" if recording else self._manual_record_hover_color,
+        )
 
     def _on_voice_preview(self):
         if self._controller.is_voice_preview_active():
