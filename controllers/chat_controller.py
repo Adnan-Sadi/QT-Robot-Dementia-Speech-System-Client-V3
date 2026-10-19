@@ -39,6 +39,9 @@ class ChatController:
         self._voice_preview = VoicePreview(robot, bus)
         self._manual_recorder = ManualRecorder(bus)
 
+        self._reply_received = threading.Event()
+        self._turn_busy = False
+
         # backend llm_responses are handled here
         self._backend.set_response_callback(self._on_llm_response_received)
         self._backend.set_chat_ended_callback(self._on_chat_ended) 
@@ -135,6 +138,10 @@ class ChatController:
         def _start():
             try:
                 self._backend.start()
+
+                self._backend.send_command("set_response_mode", {"mode": "manual"})
+                self._backend.set_listening("paused")
+
                 if not self._session_active:
                     return
                 self._bus.publish("status", "Connected. Starting listener...")
@@ -152,6 +159,7 @@ class ChatController:
                 if not self._session_active:
                     return
 
+                self._backend.set_listening("active")
                 # Publish greeting to transcript panel
                 self._bus.publish("llm_response", settings.GREETING_TEXT, emotion="happy", current_scenario=None, next_scenario=None)
 
@@ -176,6 +184,8 @@ class ChatController:
             self._session_active = False
             self._pending_chat_ended = False
             self._session_stopping = True
+            self._turn_busy = False
+            self._reply_received.set()
 
         try:
             self._stt.stop_listening()
@@ -233,52 +243,44 @@ class ChatController:
 
     def send_message(self):
         """Called when user clicks Send."""
-        if not self._session_active:
-            self._bus.publish("error", "No active session.")
-            return False
+        with self._activity_lock:
+            if not self._session_active:
+                self._bus.publish("error", "No active session.")
+                return False
 
-        # Check that there's something in the buffer (user did speak)
-        if not self._stt.has_audio():
-            self._bus.publish("error", "Nothing to send. Please speak first.")
-            return False
+            if self._turn_busy:
+                return False
 
-        # Pause listening (stop accumulating + stop live streaming)
-        self._stt.pause_listening()
+            # This checks microphone bytes, not whether speech was recognized.
+            if not self._stt.has_audio():
+                self._bus.publish("error", "Nothing to send. Please speak first.")
+                return False
 
-        self._bus.publish("status", "Thinking...")
-        return self._start_chat_worker(self._dispatch_audio)
+            self._turn_busy = True
+            self._reply_received.clear()
+
+            # Keep streaming so STT receives the silence after the final word.
+            self._bus.publish("status", "Thinking...")
+            return self._start_chat_worker(self._dispatch_audio)
 
     def _dispatch_audio(self, audio_data=None):  # audio_data no longer needed
-        """Background: signal backend that audio is done, wait for STT, then trigger LLM."""
+        """Request a reply; backend coordinates queued audio and STT."""
         try:
-            # Reset event before signalling done (in case a stale stt_staged exists)
-            self._backend.reset_stt_staged_event()
+            self._backend.send_staged()
 
-            # Audio was already streamed live — just tell backend recording is complete
-            self._backend.send_audio_done()
-
-            # Wait for backend to confirm all STT results are staged
-            staged_ok = self._backend.wait_for_stt_staged(timeout=5.0) # wait 5 seconds, should be enough since I am streaming the audio now
-            if not staged_ok:
-                # No STT transcript was produced — the user was silent (or only background noise).
-                # Abort this turn silently and go back to listening.
-                print("[ChatController] No STT results staged — user was silent. Aborting turn.")
-                with self._activity_lock:
-                    if self._session_active:
-                        self._stt.resume_listening()
-                        self._bus.publish("status", "Listening...")
+            if self._reply_received.wait(timeout=settings.LLM_TIMEOUT):
                 return
 
-            if self._session_active:
-                self._backend.send_staged()
+            print("[ChatController] No response received before the timeout.")
 
         except Exception as e:
-            self._bus.publish("error", f"Failed to send audio: {e}")
+            self._bus.publish("error", f"Failed to request response: {e}")
             traceback.print_exc()
-            with self._activity_lock:
-                if self._session_active:
-                    self._stt.resume_listening()
-                    self._bus.publish("status", "Listening...")
+
+        with self._activity_lock:
+            if self._session_active and not self._reply_received.is_set():
+                self._turn_busy = False
+                self._bus.publish("status", "Listening...")
 
     def _on_llm_response_received(self, text, emotion, current_scenario, next_scenario):
         """
@@ -286,8 +288,12 @@ class ChatController:
         Dispatches robot speech to a background thread.
         """
         print(f"[ChatController] llm_response received: text='{text[:50]}', emotion={emotion}, scenario={current_scenario}")
-        if not self._session_active:
-            return
+        with self._activity_lock:
+            if not self._session_active:
+                return
+            self._turn_busy = True
+            self._reply_received.set()
+
         self._start_chat_worker(
             self._process_response,
             args=(text, emotion, current_scenario, next_scenario),
@@ -296,6 +302,13 @@ class ChatController:
     def _process_response(self, response_text, response_emotion, current_scenario, next_scenario):
         """Background: publish response to UI, speak it, then resume listening or close."""
         try:
+            try:
+                self._backend.set_listening("paused")
+            except Exception as e:
+                if not self._pending_chat_ended:
+                    self._bus.publish("error", f"Failed to pause backend listening: {e}")
+    
+            self._stt.pause_listening()
             self._bus.publish(
                 "llm_response",
                 response_text,
@@ -318,10 +331,24 @@ class ChatController:
                 self.stop_session()
                 self._bus.publish("chat_ended", "")
             else:
-                with self._activity_lock:
+                try:
                     if self._session_active:
-                        self._stt.resume_listening()
-                        self._bus.publish("status", "Listening...") 
+                        self._backend.set_listening("active")
+
+                        with self._activity_lock:
+                            if self._session_active:
+                                self._stt.resume_listening()
+                                self._turn_busy = False
+                                self._bus.publish("status", "Listening...")
+
+                except Exception as e:
+                    if self._pending_chat_ended:
+                        self._pending_chat_ended = False
+                        self.stop_session()
+                        self._bus.publish("chat_ended", "")
+                    elif self._session_active:
+                        self._bus.publish("error", f"Failed to resume listening: {e}")
+                        self.stop_session()
 
     # ------------------------------------------------------------------
     # Session Closure: backend signals chat_ended

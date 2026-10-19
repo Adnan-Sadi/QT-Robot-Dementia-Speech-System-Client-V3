@@ -5,6 +5,8 @@ from urllib.parse import urlencode
 from typing import Optional
 import contextlib
 import base64
+from uuid import uuid4
+import traceback
 
 import aiohttp
 
@@ -32,7 +34,8 @@ class BackendClient:
         self.refresh: Optional[str] = None
         self.ws_url: Optional[str] = None
 
-        self._stt_staged_event = threading.Event()  # Event to signal that STT transcript has been staged
+        self._pending_commands = {}
+        self._response_emotion = None
         self._on_llm_response = None  # Set externally via BackendBridge.set_response_callback()
         self._on_chat_ended   = None  # callback() — fired when the backend closes the session
         self._chat_ended_received = False  # set True when chat_ended is received; suppresses reconnect
@@ -47,6 +50,7 @@ class BackendClient:
         self._listen_task = asyncio.create_task(self._listen_loop()) # start listen loop
 
     async def stop(self):
+        self._fail_pending_commands()
         if self._listen_task:
             self._listen_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -109,7 +113,8 @@ class BackendClient:
                     mtype = data.get("type")
                     if mtype == "llm_response":
                         payload = data.get("data")
-                        emotion = data.get("emotion")
+                        emotion = data.get("emotion") or self._response_emotion
+                        self._response_emotion = None
                         
                         # Handle both string (ChatConsumer) and dict (ActivityChatConsumer)
                         if isinstance(payload, str):
@@ -127,10 +132,21 @@ class BackendClient:
                         if self._on_llm_response:
                             self._on_llm_response(text, emotion, current_scenario, next_scenario)
 
-                    elif mtype == "stt_staged":
-                        self._stt_staged_event.set() # turn on the event to signal that STT transcript has been staged
+                    elif mtype == "command_ack":
+                        ack = data.get("data") or {}
+                        waiter = self._pending_commands.get(ack.get("id"))
+
+                        if waiter is not None and not waiter.done():
+                            waiter.set_result(ack)
+                    
+                    elif mtype == "robot_action":
+                        action = data.get("data") or {}
+
+                        if action.get("kind") == "emotion":
+                            self._response_emotion = action.get("value")
                     
                     elif mtype == "chat_ended":
+                        self._fail_pending_commands()
                         self._chat_ended_received = True
                         if self._on_chat_ended:
                             self._on_chat_ended()
@@ -144,13 +160,14 @@ class BackendClient:
                 elif msg.type == aiohttp.WSMsgType.ERROR:
                     await self._reconnect_with_backoff()
             except Exception as e:
-                import traceback
+                self._fail_pending_commands()
                 print(f"[BackendClient] _listen_loop error: {e}")
                 traceback.print_exc()
                 raise
 
     async def _reconnect_with_backoff(self):
         # simple exponential backoff up to 30s
+        self._fail_pending_commands()
         delay = 1
         while True:
             try:
@@ -170,15 +187,38 @@ class BackendClient:
         assert self._ws
         await self._ws.send_str(json.dumps(payload))
 
-    async def send_trigger(self):
-        """Tell the backend to flush its staged utterances and generate a response."""
-        assert self._ws
-        await self._ws.send_str(json.dumps({"type": "robot_send_staged"}))
+    async def send_command(self, name, data=None, timeout=5.0):
+        """Send a control command and wait for its acknowledgement."""
+        if not self._ws or self._ws.closed:
+            raise ConnectionError("Backend WebSocket is not connected")
 
-    async def send_audio_done(self):
-        """Tell the backend that all audio chunks for this turn have been sent."""
-        assert self._ws
-        await self._ws.send_str(json.dumps({"type": "robot_user_audio_complete"}))
+        command_id = uuid4().hex
+        waiter = asyncio.get_running_loop().create_future()
+        self._pending_commands[command_id] = waiter
+
+        payload = {"id": command_id, "name": name}
+        if data is not None:
+            payload["data"] = data
+
+        try:
+            await self._ws.send_json({"type": "command", "data": payload})
+            ack = await asyncio.wait_for(waiter, timeout=timeout)
+
+            if not ack.get("ok"):
+                raise RuntimeError(ack.get("message") or "Command rejected")
+
+            return ack
+        finally:
+            self._pending_commands.pop(command_id, None)
+
+
+    def _fail_pending_commands(self):
+        """Release command callers when their connection ends."""
+        for waiter in self._pending_commands.values():
+            if not waiter.done():
+                waiter.set_exception(
+                    ConnectionError("Backend WebSocket closed")
+            )
 
 
 class BackendBridge:
@@ -265,27 +305,20 @@ class BackendBridge:
         # Intentionally no .result() — fire-and-forget
 
     def send_staged(self):
-        """Block briefly until the trigger message is sent."""
+        """Request a reply and wait for command acceptance."""
+        return self.send_command("reply_now")
+
+    def send_command(self, name, data=None):
+        """Wait for a command acknowledgement from a worker thread."""
         if not self._started.is_set():
             raise RuntimeError("BackendBridge not started. Call start() first.")
-        fut = asyncio.run_coroutine_threadsafe(self._client.send_trigger(), self._loop)
-        fut.result()
 
-        
-    def reset_stt_staged_event(self):
-        """Reset the stt_staged event before starting a new audio send."""
-        self._client._stt_staged_event.clear()
-    
-    def wait_for_stt_staged(self, timeout: float = 8.0) -> bool:
-        """
-        Block until the backend signals that the STT transcript has been staged.
-        Returns True if signal received, False if timed out.
-        """
-        return self._client._stt_staged_event.wait(timeout=timeout)
+        fut = asyncio.run_coroutine_threadsafe(
+            self._client.send_command(name, data),
+            self._loop,
+        )
+        return fut.result()
 
-    def send_audio_done(self):
-        """Signal to the backend that all audio for this turn has been fully sent."""
-        if not self._started.is_set():
-            return
-        fut = asyncio.run_coroutine_threadsafe(self._client.send_audio_done(), self._loop)
-        fut.result()  # wait for it to be sent before continuing
+
+    def set_listening(self, state):
+        return self.send_command("set_listening", {"state": state})
